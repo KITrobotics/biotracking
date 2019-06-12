@@ -1,0 +1,6 @@
+<launch>
+  <node pkg="biotracking" type="biotracking" name="biotracking" output="screen">
+    <rosparam command="load" file="$(find biotracking)/config/parameters.yaml"/>
+  </node>
+
+</launch>

@@ -1,0 +1,27 @@
+<package format="2">
+    <name>biotracking</name>
+    <version>0.0.0</version>
+    <description>Leg Detector to find leg-like patterns of laser scanner readings.</description>
+    <maintainer email="unduh@todo.todo">unduh</maintainer>
+    <author>Daniel Azanov</author>
+    <license>TODO</license>
+
+    <buildtool_depend>catkin</buildtool_depend>
+    <build_depend>libpcl-all-dev</build_depend>
+    <depend>libpcl-all</depend>
+    <build_depend>roslint</build_depend>
+    <depend>roscpp</depend>
+    <depend>roslib</depend>
+    <depend>rosconsole</depend>
+    <depend>sensor_msgs</depend>
+    <depend>std_msgs</depend>
+    <depend>std_srvs</depend>
+    <depend>geometry_msgs</depend>
+    <depend>laser_geometry</depend>
+    <depend>pcl_conversions</depend>
+    <depend>pcl_ros</depend>
+    <depend>tf2</depend>
+    <depend>tf2_ros</depend>
+    <depend>tf2_msgs</depend>
+    <depend>tf2_sensor_msgs</depend>
+</package>
