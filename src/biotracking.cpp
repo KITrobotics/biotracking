@@ -11,13 +11,24 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer)
     nh_.param("upper_limit", upper_limit, 0.5);
     
     pcl_cloud_publisher = nh_.advertise<PointCloud>("pcl_point_cloud", 10);
-    pc2_subscriber = nh_.subscribe<sensor_msgs::PointCloud2>(topic_point_cloud, 1, &Biotracking::processPointCloud2, this);
+    pc2_subscriber = nh_.subscribe<sensor_msgs::PointCloud2>(topic_point_cloud, 1, 
+			&Biotracking::processPointCloud2, this);
+	calculateAvgService = n.advertiseService("calculateAvg", &Biotracking::calculateAvgImage, this);
     
-    image_sub_ = it_.subscribe("/camera/image_raw", 1,
-      &ImageConverter::imageCb, this);
-    image_pub_ = it_.advertise("/image_converter/output_video", 1);
+    image_sub_ = nh_.subscribe("/camera/image_raw", 1, &ImageConverter::imageCb, this);
+    image_pub_ = nh_.advertise("/biotracking/raw_image", 1);
+	working_image_pub_ = nh_.advertise("/biotracking/working_image", 1);
 
     cv::namedWindow(OPENCV_WINDOW);
+	
+	remainedImagesToCalcAvg = 100;
+	int R = 640, C = 480;
+	avg_image.create(R,C,TYPE_32FC1);
+}
+
+void calculateAvgImage(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response)
+{
+	isCalculateAvgSrvCalled = true;
 }
 
 void Biotracking::processPointCloud2(const sensor_msgs::PointCloud2::ConstPtr& cloud_in)
@@ -39,7 +50,9 @@ void Biotracking::processPointCloud2(const sensor_msgs::PointCloud2::ConstPtr& c
 }
 
 void imageCb(const sensor_msgs::ImageConstPtr& msg)
-  {
+{
+	if (!isCalculateAvgSrvCalled) { return; }
+	
     cv_bridge::CvImagePtr cv_ptr;
     try
     {
@@ -52,7 +65,25 @@ void imageCb(const sensor_msgs::ImageConstPtr& msg)
       ROS_ERROR("cv_bridge exception: %s", e.what());
       return;
     }
+	
+	if (remainedImagesToCalcAvg > 0) 
+	{ 
+		avg_image += 0.01 * cv_ptr->image;
+		remainedImagesToCalcAvg--;
+	}
+	
+	if (remainedImagesToCalcAvg == 0)
+	{ 
+		std::string file = "/home/azanov/avg_image.jpg";
+        cv::imwrite(file, avg_image);
+		remainedImagesToCalcAvg--;
+	}
 
+	if (remainedImagesToCalcAvg > 0) { return; }
+	
+	cv::Mat workingImg = avg_image - cv_ptr->image;
+	sensor_msgs::ImagePtr msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", workingImg).toImageMsg();
+	
     // cv::normalize(cv_ptr->image, depthImg->image, 1, 0, cv::NORM_MINMAX);
     
     // Draw an example circle on the video stream
@@ -65,4 +96,5 @@ void imageCb(const sensor_msgs::ImageConstPtr& msg)
 
     // Output modified video stream
     image_pub_.publish(cv_ptr->toImageMsg());
-  }
+	working_image_pub_.publish(msg);
+}

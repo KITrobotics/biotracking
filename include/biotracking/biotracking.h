@@ -48,6 +48,7 @@
 #include <sensor_msgs/image_encodings.h>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
+#include <opencv2/core/core.hpp>
 
 static const std::string OPENCV_WINDOW = "Image window";
 
@@ -59,6 +60,15 @@ class Biotracking
 private:
   tf2_ros::Buffer tfBuffer;
   tf2_ros::TransformListener tfListener;
+  ros::NodeHandle nh_;
+  ros::Publisher pcl_cloud_publisher;
+  ros::Subscriber pc2_subscriber;
+  ros::ServiceServer calculateAvgService;
+  
+  bool isAvgCalculated;
+  int remainedImagesToCalcAvg;
+  
+  cv::Mat avg_image;
   
   double lower_limit;
   double upper_limit;
@@ -68,15 +78,14 @@ private:
   
   void processPointCloud2(const sensor_msgs::PointCloud2::ConstPtr& cloud_in);
   void imageCb(const sensor_msgs::ImageConstPtr& msg);
+  void calculateAvgImage(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response);
   
   image_transport::ImageTransport it_;
   image_transport::Subscriber image_sub_;
   image_transport::Publisher image_pub_;
+  image_transport::Publisher working_image_pub_;
 
 public:
-  ros::NodeHandle nh_;
-  ros::Publisher pcl_cloud_publisher;
-  ros::Subscriber pc2_subscriber;
   
   Biotracking(ros::NodeHandle nh);
   
