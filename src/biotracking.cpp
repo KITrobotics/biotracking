@@ -17,6 +17,7 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer)
     
     image_sub_ = nh_.subscribe("/camera/image_raw", 1, &ImageConverter::imageCb, this);
     image_pub_ = nh_.advertise("/biotracking/raw_image", 1);
+    subtract_image_pub_ = it_.advertise("/biotracking/subtract_image", 1);
 	working_image_pub_ = nh_.advertise("/biotracking/working_image", 1);
 
     cv::namedWindow(OPENCV_WINDOW);
@@ -82,7 +83,14 @@ void imageCb(const sensor_msgs::ImageConstPtr& msg)
 	if (remainedImagesToCalcAvg > 0) { return; }
 	
 	cv::Mat workingImg = avg_image - cv_ptr->image;
-	sensor_msgs::ImagePtr msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", workingImg).toImageMsg();
+	cv::Mat erosion_dst;
+	cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT,
+              cv::Size(2 * erosion_size + 1, 2 * erosion_size + 1),
+              cv::Point(erosion_size, erosion_size) );
+ 
+	erode(workingImg, erosion_dst, element);
+	cv::Mat subtract_dst = workingImg - erosion_dst;
+	
 	
     // cv::normalize(cv_ptr->image, depthImg->image, 1, 0, cv::NORM_MINMAX);
     
@@ -96,5 +104,8 @@ void imageCb(const sensor_msgs::ImageConstPtr& msg)
 
     // Output modified video stream
     image_pub_.publish(cv_ptr->toImageMsg());
+	sensor_msgs::ImagePtr msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", workingImg).toImageMsg();
 	working_image_pub_.publish(msg);
+	msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", subtract_dst).toImageMsg();
+	subtract_image_pub_.publish(msg);
 }
