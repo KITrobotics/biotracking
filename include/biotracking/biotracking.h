@@ -88,6 +88,7 @@ private:
   image_transport::ImageTransport it_;
   image_transport::Subscriber image_sub_;
   image_transport::Publisher image_pub_;
+  image_transport::Publisher subtract_image_pub_;
   image_transport::Publisher working_image_pub_;
 
 public:
