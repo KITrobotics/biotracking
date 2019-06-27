@@ -91,7 +91,36 @@ void imageCb(const sensor_msgs::ImageConstPtr& msg)
 	erode(workingImg, erosion_dst, element);
 	cv::Mat subtract_dst = workingImg - erosion_dst;
 	
-	
+	int left_r, left_c, right_r, right_c;
+	left_r = left_c = right_r = right_c = -1;
+	for(int r = 0; r < subtract_dst.rows; r++) {
+        // We obtain a pointer to the beginning of row r
+        // cv::Vec3b* ptr = subtract_dst.ptr<cv::Vec3b>(r);
+		float* ptr = subtract_dst.ptr<float>(r);
+
+		int left, right;
+        for(int c = 0; c < subtract_dst.cols; c++) {
+            // We invert the blue and red values of the pixel
+            // ptr[c] = cv::Vec3b(ptr[c][2], ptr[c][1], ptr[c][0]);
+			if (ptr[c] > 0.1) {
+				left = c;
+				break;
+			}
+        }
+		for (int c = subtract_dst.cols - 1; c >= 0; c--) {
+			if (ptr[c] > 0.1) {
+				right = c;
+				break;
+			}
+		}
+		if (right - left > subtract_dst.cols / 2) {
+			left_r = right_r = r;
+			left_c = left;
+			right_c = right;
+		}
+    }
+
+
     // cv::normalize(cv_ptr->image, depthImg->image, 1, 0, cv::NORM_MINMAX);
     
     // Draw an example circle on the video stream
