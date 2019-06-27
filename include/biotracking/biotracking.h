@@ -17,6 +17,7 @@
 #include <sensor_msgs/LaserScan.h>
 #include <std_msgs/String.h>
 #include <std_msgs/Float64MultiArray.h>
+#include <std_srvs/Empty.h>
 #include <laser_geometry/laser_geometry.h>
 #include <sensor_msgs/PointCloud.h>
 #include <sensor_msgs/PointCloud2.h>
@@ -50,6 +51,7 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/core/core.hpp>
 
+
 static const std::string OPENCV_WINDOW = "Image window";
 
 typedef pcl::PointXYZRGB Point;
@@ -63,9 +65,10 @@ private:
   ros::NodeHandle nh_;
   ros::Publisher pcl_cloud_publisher;
   ros::Subscriber pc2_subscriber;
-  ros::ServiceServer calculateAvgService;
+  
   
   bool isAvgCalculated;
+  bool isCalculateAvgSrvCalled;
   int remainedImagesToCalcAvg;
   
   cv::Mat avg_image;
@@ -74,11 +77,13 @@ private:
   double upper_limit;
   
   std::string topic_point_cloud;
-  std::string topic_image_rgb;
+  std::string rgb_image_topic;
+  std::string depth_image_topic;
+  std::string depth_image_pub;
   
   void processPointCloud2(const sensor_msgs::PointCloud2::ConstPtr& cloud_in);
   void imageCb(const sensor_msgs::ImageConstPtr& msg);
-  void calculateAvgImage(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response);
+  bool calculateAvgImage(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response);
   
   image_transport::ImageTransport it_;
   image_transport::Subscriber image_sub_;
@@ -86,7 +91,7 @@ private:
   image_transport::Publisher working_image_pub_;
 
 public:
-  
+  ros::ServiceServer calculateAvgService;
   Biotracking(ros::NodeHandle nh);
   
   ~Biotracking() {}

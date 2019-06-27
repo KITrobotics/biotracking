@@ -1,34 +1,40 @@
 
+
 #include <biotracking/biotracking.h>
 
 
-Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer)
+Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it_(nh)
 {
     nh_.param("topic_point_cloud", topic_point_cloud, std::string("/camera/depth_registered/points"));
-    nh_.param("topic_image_rgb", topic_image_rgb, std::string("/camera/rgb/image_rect_color"));
+    nh_.param("rgb_image_topic", rgb_image_topic, std::string("/camera/rgb/image_rect_color"));
+    nh_.param("depth_image_topic", depth_image_topic, std::string("/camera/depth_registered/image_raw"));
+    nh_.param("depth_image_pub", depth_image_pub, std::string("/biotracking/raw_image"));
     
     nh_.param("lower_limit", lower_limit, 0.0);
-    nh_.param("upper_limit", upper_limit, 0.5);
+    nh_.param("upper_limit", upper_limit, 1.0);
     
     pcl_cloud_publisher = nh_.advertise<PointCloud>("pcl_point_cloud", 10);
     pc2_subscriber = nh_.subscribe<sensor_msgs::PointCloud2>(topic_point_cloud, 1, 
 			&Biotracking::processPointCloud2, this);
-	calculateAvgService = n.advertiseService("calculateAvg", &Biotracking::calculateAvgImage, this);
+	calculateAvgService = nh_.advertiseService("calculateAvg", &Biotracking::calculateAvgImage, this);
     
-    image_sub_ = nh_.subscribe("/camera/image_raw", 1, &ImageConverter::imageCb, this);
-    image_pub_ = nh_.advertise("/biotracking/raw_image", 1);
-	working_image_pub_ = nh_.advertise("/biotracking/working_image", 1);
+    image_sub_ = it_.subscribe(depth_image_topic, 1, &Biotracking::imageCb, this);
+    image_pub_ = it_.advertise(depth_image_pub, 1);
+	working_image_pub_ = it_.advertise("/biotracking/working_image", 1);
 
-    cv::namedWindow(OPENCV_WINDOW);
+//     cv::namedWindow(e);
 	
 	remainedImagesToCalcAvg = 100;
 	int R = 640, C = 480;
-	avg_image.create(R,C,TYPE_32FC1);
+	avg_image.create(R,C,CV_32FC1);
+    
+    isCalculateAvgSrvCalled = isAvgCalculated = false;
 }
 
-void calculateAvgImage(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response)
+bool Biotracking::calculateAvgImage(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response)
 {
 	isCalculateAvgSrvCalled = true;
+    return true;
 }
 
 void Biotracking::processPointCloud2(const sensor_msgs::PointCloud2::ConstPtr& cloud_in)
@@ -49,7 +55,7 @@ void Biotracking::processPointCloud2(const sensor_msgs::PointCloud2::ConstPtr& c
     pcl_cloud_publisher.publish(pass_through_filtered);
 }
 
-void imageCb(const sensor_msgs::ImageConstPtr& msg)
+void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
 {
 	if (!isCalculateAvgSrvCalled) { return; }
 	
@@ -82,7 +88,8 @@ void imageCb(const sensor_msgs::ImageConstPtr& msg)
 	if (remainedImagesToCalcAvg > 0) { return; }
 	
 	cv::Mat workingImg = avg_image - cv_ptr->image;
-	sensor_msgs::ImagePtr msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", workingImg).toImageMsg();
+	sensor_msgs::ImagePtr workingImgMsg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", workingImg).toImageMsg();
+
 	
     // cv::normalize(cv_ptr->image, depthImg->image, 1, 0, cv::NORM_MINMAX);
     
@@ -91,10 +98,10 @@ void imageCb(const sensor_msgs::ImageConstPtr& msg)
       cv::circle(cv_ptr->image, cv::Point(50, 50), 10, CV_RGB(255,0,0));
 
     // Update GUI Window
-    cv::imshow(OPENCV_WINDOW, cv_ptr->image);
-    cv::waitKey(3);
+//     cv::imshow(OPENCV_WINDOW, cv_ptr->image);
+//     cv::waitKey(3);
 
     // Output modified video stream
     image_pub_.publish(cv_ptr->toImageMsg());
-	working_image_pub_.publish(msg);
+	working_image_pub_.publish(workingImgMsg);
 }
