@@ -91,6 +91,8 @@ void imageCb(const sensor_msgs::ImageConstPtr& msg)
 	erode(workingImg, erosion_dst, element);
 	cv::Mat subtract_dst = workingImg - erosion_dst;
 	
+	// cv::cvtColor(imgOriginal, imgGrayscale, CV_BGR2GRAY);        // convert to grayscale
+	
 	int left_r, left_c, right_r, right_c;
 	left_r = left_c = right_r = right_c = -1;
 	for(int r = 0; r < subtract_dst.rows; r++) {
