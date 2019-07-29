@@ -4,3 +4,4 @@ upper_limit: 1.0
 depth_image_topic: /camera/depth_registered/image_raw
 rgb_image_topic: /camera/rgb/image_raw
 depth_image_pub: /biotracking/raw_image
+background_threshold: 70

@@ -76,21 +76,29 @@ private:
   double lower_limit;
   double upper_limit;
   
+  int background_threshold;
+  
   std::string topic_point_cloud;
   std::string rgb_image_topic;
   std::string depth_image_topic;
   std::string depth_image_pub;
   
+  int left_r, left_c, right_r, right_c;
+  
   void processPointCloud2(const sensor_msgs::PointCloud2::ConstPtr& cloud_in);
   void imageCb(const sensor_msgs::ImageConstPtr& msg);
+  void rgbImageCb(const sensor_msgs::ImageConstPtr& msg);
   bool calculateAvgImage(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response);
   
   image_transport::ImageTransport it_;
   image_transport::Subscriber image_sub_;
+  image_transport::Subscriber rgb_image_sub_;
   image_transport::Publisher image_pub_;
   image_transport::Publisher subtract_image_pub_;
   image_transport::Publisher working_image_pub_;
   image_transport::Publisher avg_image_pub_;
+  image_transport::Publisher raw_image_8u_pub_;
+  image_transport::Publisher rgb_image_pub_;
 
 public:
   ros::ServiceServer calculateAvgService;
