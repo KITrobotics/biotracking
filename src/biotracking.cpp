@@ -2,6 +2,8 @@
 
 #include <biotracking/biotracking.h>
 
+int C = 640, R = 480;
+int out = 1;
 
 Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it_(nh)
 {
@@ -22,11 +24,12 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
     image_pub_ = it_.advertise(depth_image_pub, 1);
     subtract_image_pub_ = it_.advertise("/biotracking/subtract_image", 1);
 	working_image_pub_ = it_.advertise("/biotracking/working_image", 1);
+	avg_image_pub_ = it_.advertise("/biotracking/avg_image", 1);
 
 //     cv::namedWindow(e);
 	
 	remainedImagesToCalcAvg = 100;
-	int R = 640, C = 480;
+	
 	avg_image.create(R,C,CV_32FC1);
     
     isCalculateAvgSrvCalled = isAvgCalculated = false;
@@ -81,14 +84,42 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
 	
 	if (remainedImagesToCalcAvg == 0)
 	{ 
-		std::string file = "/home/azanov/avg_image.jpg";
+		std::string file = "/home/student1/avg_image.jpg";
         cv::imwrite(file, avg_image);
 		remainedImagesToCalcAvg--;
+        ROS_INFO("Average image is calculated!");
 	}
 
 	if (remainedImagesToCalcAvg > 0) { return; }
 	
-	cv::Mat workingImg = avg_image - cv_ptr->image;
+	
+	/*
+     * workingImg
+     */
+// 	cv::Mat workingImg = cv_ptr->image - avg_image;
+
+    cv::Mat workingImg;
+    if (out == 1) {
+        workingImg.create(R,C,CV_32FC1);
+        std::string s = "";
+        for(int r = 0; r < workingImg.rows; r++) {
+            float* raw_image_ptr = cv_ptr->image.ptr<float>(r);
+            float* avg_image_ptr = avg_image.ptr<float>(r);
+            
+            for(int c = 0; c < workingImg.cols; c++) {
+                s += "[" + std::to_string(raw_image_ptr[c]) + ", " + std::to_string(avg_image_ptr[c]) + "(" + std::to_string(r) + ", " + std::to_string(c) + ")]";
+            }
+            s += "\n";
+        }
+        out = 0;
+        ROS_INFO("image: %s", s.c_str());
+    }
+    else { workingImg = cv_ptr->image - avg_image; }
+    
+    
+    
+    
+    
 	cv::Mat erosion_dst;
     int erosion_size = 0;
 	cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT,
@@ -97,8 +128,6 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
 
 	erode(workingImg, erosion_dst, element);
 	cv::Mat subtract_dst = workingImg - erosion_dst;
-	
-	// cv::cvtColor(imgOriginal, imgGrayscale, CV_BGR2GRAY);        // convert to grayscale
 	
 	int left_r, left_c, right_r, right_c;
 	left_r = left_c = right_r = right_c = -1;
@@ -133,8 +162,10 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     // cv::normalize(cv_ptr->image, depthImg->image, 1, 0, cv::NORM_MINMAX);
     
     // Draw an example circle on the video stream
-    if (cv_ptr->image.rows > 60 && cv_ptr->image.cols > 60)
-      cv::circle(cv_ptr->image, cv::Point(50, 50), 10, CV_RGB(255,0,0));
+//     if (cv_ptr->image.rows > 60 && cv_ptr->image.cols > 60)
+//       cv::circle(cv_ptr->image, cv::Point(50, 50), 10, CV_RGB(255,0,0),CV_FILLED, 8,0);
+      cv::circle(cv_ptr->image, cv::Point(left_r, left_c), 10, CV_RGB(255,0,0),CV_FILLED, 8,0);
+      cv::circle(cv_ptr->image, cv::Point(right_r, right_c), 10, CV_RGB(255,0,0),CV_FILLED, 8,0);
 
     // Update GUI Window
 //     cv::imshow(OPENCV_WINDOW, cv_ptr->image);
@@ -142,8 +173,10 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
 
     // Output modified video stream
     image_pub_.publish(cv_ptr->toImageMsg());
-	sensor_msgs::ImagePtr msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "bgr8", workingImg).toImageMsg();
+	sensor_msgs::ImagePtr msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "32FC1", workingImg).toImageMsg();
 	working_image_pub_.publish(msg_to_pub);
-	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "bgr8", subtract_dst).toImageMsg();
+	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "32FC1", subtract_dst).toImageMsg();
 	subtract_image_pub_.publish(msg_to_pub);
+	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "32FC1", avg_image).toImageMsg();
+	avg_image_pub_.publish(msg_to_pub);
 }

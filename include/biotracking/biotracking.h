@@ -90,6 +90,7 @@ private:
   image_transport::Publisher image_pub_;
   image_transport::Publisher subtract_image_pub_;
   image_transport::Publisher working_image_pub_;
+  image_transport::Publisher avg_image_pub_;
 
 public:
   ros::ServiceServer calculateAvgService;
