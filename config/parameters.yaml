@@ -5,3 +5,5 @@ depth_image_topic: /camera/depth_registered/image_raw
 rgb_image_topic: /camera/rgb/image_raw
 depth_image_pub: /biotracking/raw_image
 background_threshold: 70
+person_distance: 1.5
+bottom_factor: 1.
