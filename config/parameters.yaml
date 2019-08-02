@@ -7,3 +7,6 @@ depth_image_pub: /biotracking/raw_image
 background_threshold: 70
 person_distance: 1.5
 bottom_factor: 1.
+shouldOutput: false
+frame_id: camera_depth_frame
+usePCL: true

@@ -86,12 +86,17 @@ private:
   int background_threshold;
   double person_distance;
   
+  bool shouldOutput;
+  bool usePCL;
+  
   std::string topic_point_cloud;
   std::string rgb_image_topic;
   std::string depth_image_topic;
   std::string depth_image_pub;
   
   double bottom_factor;
+
+  std::string frame_id;
   
   int left_r, left_c, right_r, right_c;
   
@@ -106,7 +111,11 @@ private:
   void imageCb(const sensor_msgs::ImageConstPtr& msg);
   void rgbImageCb(const sensor_msgs::ImageConstPtr& msg);
   bool calculateAvgImage(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response);
-  
+  visualization_msgs::Marker getRectangleMarker(double x, double y, double z);
+
+  ros::Publisher hips_plane_pub_;
+  ros::Publisher neck_plane_pub_;
+
   image_transport::ImageTransport it_;
   image_transport::Subscriber image_sub_;
   image_transport::Subscriber rgb_image_sub_;
@@ -117,6 +126,7 @@ private:
   image_transport::Publisher raw_image_8u_pub_;
   image_transport::Publisher rgb_image_pub_;
   image_transport::Publisher mog2_pub_;
+  image_transport::Publisher erosion_image_pub_;
 
 public:
   ros::ServiceServer calculateAvgService;
