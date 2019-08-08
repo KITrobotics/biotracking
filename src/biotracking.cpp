@@ -8,7 +8,7 @@
 int C = 640, R = 480; // x = c, y = r
 int out = 1;
 int ToCalcAvg = 10;
-
+int bad_point = 9.9;
 
 
 
@@ -23,7 +23,6 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
     nh_.param("frame_id", frame_id, std::string("camera_depth_frame"));
     nh_.param("camera_info_topic", camera_info_topic, std::string("camera_info"));
     nh_.param("background_threshold", background_threshold, 3);
-    nh_.param("person_distance", person_distance, 2.);
     nh_.param("person_distance", person_distance, 1.);
     
     nh_.param("shouldOutput", shouldOutput, false);
@@ -36,10 +35,11 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
     nh_.param("person_hips", person_hips, 0.15);
     nh_.param("person_neck", person_neck, 0.52);
     
+    hips_plane_pub_ = nh_.advertise<visualization_msgs::Marker>("/biotracking/hips_plane_pub_", 10);
+    neck_plane_pub_ = nh_.advertise<visualization_msgs::Marker>("/biotracking/neck_plane_pub_", 10);
+    
     if (usePCL)
     {
-        hips_plane_pub_ = nh_.advertise<visualization_msgs::Marker>("/biotracking/hips_plane_pub_", 10);
-        neck_plane_pub_ = nh_.advertise<visualization_msgs::Marker>("/biotracking/neck_plane_pub_", 10);
         
         pcl_cloud_publisher = nh_.advertise<PointCloud>("pcl_point_cloud", 10);
         pc2_subscriber = nh_.subscribe<sensor_msgs::PointCloud2>(topic_point_cloud, 1, 
@@ -74,6 +74,7 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
         
         bottom_right_r = bottom_left_r = bottom_right_c = bottom_left_c = -1;
         left_r = left_c = right_r = right_c = -1;
+        line_px = -1;
     }
 }
 
@@ -117,11 +118,15 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
         
         for(int r = 0; r < avg_image.rows; r++) {
             float* avg_image_raw_ptr = avg_image.ptr<float>(r);
+            float* cv_ptr_image_ptr = cv_ptr->image.ptr<float>(r);
         
             for(int c = 0; c < avg_image.cols; c++) {
                 // if NaN
                 if (avg_image_raw_ptr[c] != avg_image_raw_ptr[c]) { 
-                    avg_image_raw_ptr[c] = 9.9;
+                    avg_image_raw_ptr[c] = bad_point;
+                }
+                if (cv_ptr_image_ptr[c] != cv_ptr_image_ptr[c]) {
+                    cv_ptr_image_ptr[c] = bad_point;
                 }
             }
         }
@@ -266,34 +271,113 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     }
     
     PointCloud cloud;
-    cloud.header.frame_id = frame_id;
+    cloud.header.frame_id = msg->header.frame_id;
     
-    int needed_y_value = 0.7;
-    bool row_calculated = false;
-    double camera_fx, camera_fy;
-    camera_fx = camera_fy = 570.3422241210938;
-    double camera_cx = 314.5;
-    double camera_cy = 235.5;
+    
+    float center_x = model_.cx();
+    float center_y = model_.cy();
+    
+    double unit_scaling = depth_image_proc::DepthTraits<float>::toMeters( float(1) );
+    float constant_x = unit_scaling / model_.fx();
+    float constant_y = unit_scaling / model_.fy();
+    
+//     const float* depth_row = reinterpret_cast<const float*>(&msg->data[0]);
+//     int row_step = msg->step / sizeof(float);
+//     
+//     cloud.height = msg->height;
+//     cloud.width  = msg->width;
+// //     cloud.is_dense = false;
+// //     cloud.is_bigendian = false;
+//     
+//     for (int v = 0; v < int(cloud.height); ++v, depth_row += row_step) {
+//         for (int u = 0; u < int(cloud.width); ++u)
+//         {
+//             float depth = depth_row[u];
+//             if (!depth_image_proc::DepthTraits<float>::valid(depth))
+//             {
+// //                 *iter_x = *iter_y = *iter_z = bad_point;
+//             }
+//             else
+//             {
+//                 // Fill in XYZ
+//                 Point point;
+//                 point.x = (u - center_x) * depth * constant_x;
+//                 point.y = (v - center_y) * depth * constant_y;
+//                 point.z = depth_image_proc::DepthTraits<float>::toMeters(depth);
+//                 cloud.points.push_back(point);
+//             }
+//         }
+//     }
+    
+    float needed_y_value = 1.;
+//     bool row_calculated = false;
+//     double camera_fx, camera_fy;
+//     camera_fx = camera_fy = 570.3422241210938;
+//     double camera_cx = 314.5;
+//     double camera_cy = 235.5;
+    bool foundLine = false;
+    bool hasText = false;
+    int textEvery50 = 0;
+    
     for (int m = 0; m < avg_image.rows; m++)
     {
         for (int n = 0; n < avg_image.cols; n++)
         {
             float d = cv_ptr->image.ptr<float>(m)[n];
-            if (d == 0)
+            uchar black_white = subtract_dst.ptr<uchar>(m)[n];
+            
+            double z = d;
+            double x = (n - center_x) * z * constant_x;
+            double y = (m - center_y) * z * constant_y;
+            
+            if (!hasText && black_white > 0 && textEvery50 == 0) {
+                cv::putText(subtract_dst, "(" + std::to_string(x) + ", " + std::to_string(y) + ", " + std::to_string(z) + ")", cv::Point(n,m), 
+                    cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,255,255), 1, CV_AA);
+                textEvery50 = 50;
+            }
+
+            
+            
+            if (d == 0 || d != d)
             {
                 continue;
             }
-            double z = d;
-            double x = (n - camera_cx) * z / camera_fx;
-            double y = (m - camera_cy) * z / camera_fy;
+            
+//             if (!foundLine && std::abs(y - needed_y_value) < 0.10 && black_white > 0) {
+//                 ROS_INFO("m,n: (%d, %d), d: %f, x: %f, y: %f, y-0.7: %f", m, n, d, x, y, (y-0.7));
+            if (!foundLine && std::abs(z - person_hips) < 0.10) {
+                line_px = 0;
+                line_py = line_qy = m;
+                line_qx = avg_image.cols - 1;
+                foundLine = true;
+            }
+            
             Point p;
             p.x = x; p.y = y; p.z = z;
             cloud.points.push_back(p);
-            
+        }
+        
+        if (textEvery50 > 0) {
+            textEvery50--;
         }
     }
     
+    if (line_py == avg_image.rows - 1) {
+        line_px = -1;
+    }
+    
     calculated_point_cloud_publisher.publish(cloud);
+    
+    if (line_px != -1) {
+        cv::line(subtract_dst, cv::Point(line_px, line_py), cv::Point(line_qx, line_qy), cv::Scalar(255,255,255));
+    }
+    
+    double x = upper_limit - lower_limit;
+    double y = 0.0;
+    visualization_msgs::Marker marker = getRectangleMarker(x, y, person_hips);
+    hips_plane_pub_.publish(marker);
+    marker = getRectangleMarker(x, y, person_neck);
+    neck_plane_pub_.publish(marker);
     
     
     image_pub_.publish(cv_ptr->toImageMsg());
@@ -376,6 +460,10 @@ void Biotracking::rgbImageCb(const sensor_msgs::ImageConstPtr& msg)
     {
       ROS_ERROR("cv_bridge exception: %s", e.what());
       return;
+    }
+    
+    if (line_px != -1) {
+        cv::line(cv_ptr->image, cv::Point(line_px, line_py), cv::Point(line_qx, line_qy), cv::Scalar(0,0,255));
     }
     
     if (left_c != -1 && left_r != -1) 

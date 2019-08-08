@@ -59,6 +59,7 @@
 #include "opencv2/bgsegm.hpp"
 
 #include <image_geometry/pinhole_camera_model.h>
+#include <depth_image_proc/depth_traits.h>
 
 
 static const std::string OPENCV_WINDOW = "Image window";
@@ -101,6 +102,10 @@ private:
   
   double bottom_factor;
 
+  
+  double line_px, line_py, line_qx, line_qy;
+  
+  
   std::string frame_id;
   
   int left_r, left_c, right_r, right_c;

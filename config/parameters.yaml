@@ -10,7 +10,9 @@ bottom_factor: 1.
 shouldOutput: false
 frame_id: camera_depth_frame
 usePCL: false
+#person_hips: -0.1
+#person_neck: 0.4
 person_hips: -0.1
 person_neck: 0.4
 useCentroid: true
-camera_info_topic: /camera/depth_registered/info
+camera_info_topic: /camera/depth/camera_info
