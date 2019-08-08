@@ -22,6 +22,7 @@ find_package(catkin REQUIRED COMPONENTS
   tf2_sensor_msgs
   cv_bridge
   image_transport
+  image_geometry
 )
 
 # find_package(Eigen3 REQUIRED)

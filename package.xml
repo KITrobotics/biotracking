@@ -26,4 +26,5 @@
     <depend>tf2_sensor_msgs</depend>
     <depend>cv_bridge</depend>
     <depend>image_transport</depend>
+    <depend>image_geometry</depend>
 </package>

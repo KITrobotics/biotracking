@@ -9,23 +9,32 @@ int C = 640, R = 480; // x = c, y = r
 int out = 1;
 int ToCalcAvg = 10;
 
+
+
+
 Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it_(nh)
 {
+    
+    
     nh_.param("topic_point_cloud", topic_point_cloud, std::string("/camera/depth_registered/points"));
     nh_.param("rgb_image_topic", rgb_image_topic, std::string("/camera/rgb/image_rect_color"));
     nh_.param("depth_image_topic", depth_image_topic, std::string("/camera/depth_registered/image_raw"));
     nh_.param("depth_image_pub", depth_image_pub, std::string("/biotracking/raw_image"));
     nh_.param("frame_id", frame_id, std::string("camera_depth_frame"));
+    nh_.param("camera_info_topic", camera_info_topic, std::string("camera_info"));
     nh_.param("background_threshold", background_threshold, 3);
     nh_.param("person_distance", person_distance, 2.);
     nh_.param("person_distance", person_distance, 1.);
     
     nh_.param("shouldOutput", shouldOutput, false);
     nh_.param("usePCL", usePCL, true);
+    nh_.param("useCentroid", useCentroid, true);
     
     nh_.param("lower_limit", lower_limit, 0.0);
     nh_.param("upper_limit", upper_limit, 1.0);
 
+    nh_.param("person_hips", person_hips, 0.15);
+    nh_.param("person_neck", person_neck, 0.52);
     
     if (usePCL)
     {
@@ -38,6 +47,7 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
     }
     else
     {
+        calculated_point_cloud_publisher = nh_.advertise<PointCloud>("calculated_point_cloud", 10);
         calculateAvgService = nh_.advertiseService("calculateAvg", &Biotracking::calculateAvgImage, this);
         
         image_sub_ = it_.subscribe(depth_image_topic, 1, &Biotracking::imageCb, this);
@@ -51,6 +61,11 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
         mog2_pub_ = it_.advertise("/biotracking/mog2_image_", 1);
         erosion_image_pub_ = it_.advertise("/biotracking/erosion_image_", 1);
         
+        
+        sub_camera_info_ = nh_.subscribe<sensor_msgs::CameraInfo>(camera_info_topic, 1, &Biotracking::cameraInfoCb, this);
+        hasCameraInfo = false;
+        
+        
         remainedImagesToCalcAvg = ToCalcAvg;
         
         avg_image.create(R,C,CV_32FC1);
@@ -62,6 +77,15 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
     }
 }
 
+
+void Biotracking::cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg)
+{
+    if (!hasCameraInfo)
+    {
+        model_.fromCameraInfo(info_msg);
+        hasCameraInfo = true;
+    }
+}
 
 
 void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
@@ -241,6 +265,37 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
 		}
     }
     
+    PointCloud cloud;
+    cloud.header.frame_id = frame_id;
+    
+    int needed_y_value = 0.7;
+    bool row_calculated = false;
+    double camera_fx, camera_fy;
+    camera_fx = camera_fy = 570.3422241210938;
+    double camera_cx = 314.5;
+    double camera_cy = 235.5;
+    for (int m = 0; m < avg_image.rows; m++)
+    {
+        for (int n = 0; n < avg_image.cols; n++)
+        {
+            float d = cv_ptr->image.ptr<float>(m)[n];
+            if (d == 0)
+            {
+                continue;
+            }
+            double z = d;
+            double x = (n - camera_cx) * z / camera_fx;
+            double y = (m - camera_cy) * z / camera_fy;
+            Point p;
+            p.x = x; p.y = y; p.z = z;
+            cloud.points.push_back(p);
+            
+        }
+    }
+    
+    calculated_point_cloud_publisher.publish(cloud);
+    
+    
     image_pub_.publish(cv_ptr->toImageMsg());
     
 	sensor_msgs::ImagePtr msg_to_pub;
@@ -290,10 +345,20 @@ void Biotracking::processPointCloud2(const sensor_msgs::PointCloud2::ConstPtr& c
     pass.setFilterLimitsNegative (false);
     pass.filter(pass_through_filtered);
     pcl_cloud_publisher.publish(pass_through_filtered);
+    
+    double x = upper_limit - lower_limit;
+    double y = 0.0;
+    
+    if (useCentroid) {
+        Eigen::Vector4f centroid;
+        pcl::compute3DCentroid(pass_through_filtered, centroid);
+        x = centroid(2);
+        y = -centroid(0);
+    }
 
-    visualization_msgs::Marker marker = getRectangleMarker(0.2, 0.5, 0.6);
+    visualization_msgs::Marker marker = getRectangleMarker(x, y, person_hips);
     hips_plane_pub_.publish(marker);
-    marker = getRectangleMarker(0.2, 0.5, 1.7);
+    marker = getRectangleMarker(x, y, person_neck);
     neck_plane_pub_.publish(marker);
 }
 
@@ -339,9 +404,9 @@ visualization_msgs::Marker Biotracking::getRectangleMarker(double x, double y, d
     marker.pose.position.x = x;
     marker.pose.position.y = y;
     marker.pose.position.z = z;
-    marker.scale.x = 1.;
-    marker.scale.y = 1.;
-    marker.scale.z = 0.01;
+    marker.scale.x = 0.9;
+    marker.scale.y = 0.9;
+    marker.scale.z = 0.001;
     marker.color.a = 1.0;
     marker.color.g = 1.0;
     return marker;

@@ -58,6 +58,8 @@
 // #include "opencv2/bgsegm.hpp"
 #include "opencv2/bgsegm.hpp"
 
+#include <image_geometry/pinhole_camera_model.h>
+
 
 static const std::string OPENCV_WINDOW = "Image window";
 
@@ -70,8 +72,6 @@ private:
   tf2_ros::Buffer tfBuffer;
   tf2_ros::TransformListener tfListener;
   ros::NodeHandle nh_;
-  ros::Publisher pcl_cloud_publisher;
-  ros::Subscriber pc2_subscriber;
   
   
   bool isAvgCalculated;
@@ -82,6 +82,11 @@ private:
   
   double lower_limit;
   double upper_limit;
+  
+  double person_hips;
+  double person_neck;
+  
+  bool useCentroid;
   
   int background_threshold;
   double person_distance;
@@ -112,9 +117,21 @@ private:
   void rgbImageCb(const sensor_msgs::ImageConstPtr& msg);
   bool calculateAvgImage(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response);
   visualization_msgs::Marker getRectangleMarker(double x, double y, double z);
-
+  
+  
+  void cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg);
+  ros::Subscriber sub_camera_info_;
+  std::string camera_info_topic;
+  image_geometry::PinholeCameraModel model_;
+  bool hasCameraInfo;
+  
+  
+  ros::Subscriber pc2_subscriber;
+  
+  ros::Publisher pcl_cloud_publisher;
   ros::Publisher hips_plane_pub_;
   ros::Publisher neck_plane_pub_;
+  ros::Publisher calculated_point_cloud_publisher;
 
   image_transport::ImageTransport it_;
   image_transport::Subscriber image_sub_;
@@ -127,6 +144,10 @@ private:
   image_transport::Publisher rgb_image_pub_;
   image_transport::Publisher mog2_pub_;
   image_transport::Publisher erosion_image_pub_;
+  
+  
+  
+  
 
 public:
   ros::ServiceServer calculateAvgService;
