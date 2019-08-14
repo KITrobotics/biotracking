@@ -20,7 +20,8 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
     nh_.param("rgb_image_topic", rgb_image_topic, std::string("/camera/rgb/image_rect_color"));
     nh_.param("depth_image_topic", depth_image_topic, std::string("/camera/depth_registered/image_raw"));
     nh_.param("depth_image_pub", depth_image_pub, std::string("/biotracking/raw_image"));
-    nh_.param("frame_id", frame_id, std::string("camera_depth_frame"));
+    nh_.param("camera_frame_id", camera_frame_id, std::string("camera_depth_frame"));
+    nh_.param("person_hips_frame_id", person_hips_frame_id, std::string("base_link"));
     nh_.param("camera_info_topic", camera_info_topic, std::string("camera_info"));
     nh_.param("background_threshold", background_threshold, 3);
     nh_.param("person_distance", person_distance, 1.);
@@ -34,6 +35,7 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
 
     nh_.param("person_hips", person_hips, 0.15);
     nh_.param("person_neck", person_neck, 0.52);
+    nh_.param("camera_angle_radians", camera_angle_radians, 0.26);
     
     hips_plane_pub_ = nh_.advertise<visualization_msgs::Marker>("/biotracking/hips_plane_pub_", 10);
     neck_plane_pub_ = nh_.advertise<visualization_msgs::Marker>("/biotracking/neck_plane_pub_", 10);
@@ -309,6 +311,65 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
 //         }
 //     }
     
+    int remove_left, remove_right;
+    remove_left = remove_right = -1;
+    for (int m = 0; m < avg_image.rows; m++)
+    {
+        for (int n = 0; n < avg_image.cols; n++)
+        {
+            uchar black_white = subtract_dst.ptr<uchar>(m)[n];
+            if (black_white > 0) {
+                remove_left = n;
+            }
+        }
+        for (int n = avg_image.cols - 1; n > remove_left; n--)
+        {
+            uchar black_white = subtract_dst.ptr<uchar>(m)[n];
+            if (black_white > 0) {
+                remove_right = n;
+            }
+        }
+        for (int n = remove_left + 1; n < remove_right; n++)
+        {
+            uchar* black_white_ptr = subtract_dst.ptr<uchar>(m);
+            black_white_ptr[n] = 0;
+        }
+    }
+    
+    
+    
+    
+    /**
+     * Retrieving camera point of person hips height
+     */
+//     geometry_msgs::TransformStamped transformStamped;
+//     geometry_msgs::PointStamped person_hips_height_world_point, person_hips_height_camera_point;
+//     person_hips_height_world_point.header.frame_id = camera_frame_id;
+//     person_hips_height_world_point.header.stamp = ros::Time::now();
+// 
+//     bool is_transformed = false;
+//     try{
+//         transformStamped = tfBuffer.lookupTransform(camera_frame_id, person_hips_frame_id, ros::Time(0));
+//         is_transformed = true;
+//     }
+//     catch (tf2::TransformException &ex) {
+//         ROS_WARN("Failure to lookup the transform for a point! %s\n", ex.what());
+//     }
+// 
+//     if (is_transformed) 
+//     {
+//         person_hips_height_world_point.point.x = 0.;
+//         person_hips_height_world_point.point.y = 0.;
+//         person_hips_height_world_point.point.z = person_hips;
+// 
+//         tf2::doTransform(person_hips_height_world_point, person_hips_height_camera_point, transformStamped);
+//     }
+    /**
+     * Retrieving camera point of person hips height
+     */
+    
+    
+    
     float needed_y_value = 1.;
 //     bool row_calculated = false;
 //     double camera_fx, camera_fy;
@@ -318,6 +379,10 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     bool foundLine = false;
     bool hasText = false;
     int textEvery50 = 0;
+    
+    double camera_zero_plane_x, camera_zero_plane_y;
+    double camera_zero_plane_z = -1;
+    double horizontal_plane_y = -1;
     
     for (int m = 0; m < avg_image.rows; m++)
     {
@@ -335,26 +400,27 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
                     cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,255,255), 1, CV_AA);
                 textEvery50 = 50;
             }
-
-            
             
             if (d == 0 || d != d)
             {
                 continue;
             }
             
+            Point p;
+            p.x = x; p.y = y; p.z = z;
+            cloud.points.push_back(p);
+            
 //             if (!foundLine && std::abs(y - needed_y_value) < 0.10 && black_white > 0) {
 //                 ROS_INFO("m,n: (%d, %d), d: %f, x: %f, y: %f, y-0.7: %f", m, n, d, x, y, (y-0.7));
-            if (!foundLine && std::abs(z - person_hips) < 0.10) {
+            
+            
+            
+            if (!foundLine && std::abs(y - person_hips) < 0.10) {
                 line_px = 0;
                 line_py = line_qy = m;
                 line_qx = avg_image.cols - 1;
                 foundLine = true;
             }
-            
-            Point p;
-            p.x = x; p.y = y; p.z = z;
-            cloud.points.push_back(p);
         }
         
         if (textEvery50 > 0) {
@@ -380,8 +446,15 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     neck_plane_pub_.publish(marker);
     
     
-    image_pub_.publish(cv_ptr->toImageMsg());
+
     
+    
+    
+    
+    
+    
+    
+    image_pub_.publish(cv_ptr->toImageMsg());
 	sensor_msgs::ImagePtr msg_to_pub;
     
     msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", raw_image_8u).toImageMsg();
@@ -484,7 +557,7 @@ void Biotracking::rgbImageCb(const sensor_msgs::ImageConstPtr& msg)
 visualization_msgs::Marker Biotracking::getRectangleMarker(double x, double y, double z)
 {
     visualization_msgs::Marker marker;
-    marker.header.frame_id = frame_id;
+    marker.header.frame_id = camera_frame_id;
     marker.header.stamp = ros::Time();
     marker.ns = nh_.getNamespace();
     marker.type = visualization_msgs::Marker::CUBE;

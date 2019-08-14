@@ -101,12 +101,13 @@ private:
   std::string depth_image_pub;
   
   double bottom_factor;
-
+  double camera_angle_radians;
   
   double line_px, line_py, line_qx, line_qy;
   
   
-  std::string frame_id;
+  std::string camera_frame_id;
+  std::string person_hips_frame_id;
   
   int left_r, left_c, right_r, right_c;
   
