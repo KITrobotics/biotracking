@@ -398,7 +398,7 @@ void Biotracking::calculateHipsLeftRightX(cv::Mat& black_white_image)
         return;
     }
     
-    for (int n = black_white_image.cols - 1; n > hips_left_x; n++)
+    for (int n = black_white_image.cols - 1; n > hips_left_x; n--)
     {
         uchar black_white = black_white_image.ptr<uchar>(hips_height)[n];
         if (black_white > 0) {
