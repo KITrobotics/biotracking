@@ -113,6 +113,10 @@ private:
   float constant_x;
   float constant_y;
   
+  int hips_height;
+  int hips_left_x;
+  int hips_right_x;
+  
   
   std::string camera_frame_id;
   std::string person_hips_frame_id;
@@ -134,6 +138,8 @@ private:
   int showHorizontalPlane(cv::Mat& depth_image, cv::Mat& black_white_image);
   int calculateHipsHeight(cv::Mat& depth_image, int horizontal_plane_y_int, cv::Mat& black_white_image);
   int showFirstFromLeftPoints(cv::Mat& depth_image, cv::Mat& black_white_image, std::string frame_id);
+  void calculateHipsLeftRightX(cv::Mat& black_white_image);
+  void drawHipsCirles(cv::Mat& image);
   
   void cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg);
   ros::Subscriber sub_camera_info_;

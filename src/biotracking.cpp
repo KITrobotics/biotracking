@@ -338,7 +338,8 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     
     if (horizontal_plane_y_int != -1) 
     {
-        calculateHipsHeight(cv_ptr->image, horizontal_plane_y_int, subtract_dst);
+        hips_height = calculateHipsHeight(cv_ptr->image, horizontal_plane_y_int, subtract_dst);
+        calculateHipsLeftRightX(subtract_dst);
     }
     
     
@@ -378,6 +379,32 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     
 //     int waitInt;
 //     std::cin >> waitInt;
+}
+
+void Biotracking::calculateHipsLeftRightX(cv::Mat& black_white_image)
+{   
+    bool found_white = false;
+    for (int n = 0; n < black_white_image.cols; n++)
+    {
+        uchar black_white = black_white_image.ptr<uchar>(hips_height)[n];
+        if (black_white > 0) {
+            hips_left_x = n;
+            found_white = true;
+        }
+    }
+    
+    if (!found_white) {
+        hips_left_x = hips_right_x = -1;
+        return;
+    }
+    
+    for (int n = black_white_image.cols - 1; n > hips_left_x; n++)
+    {
+        uchar black_white = black_white_image.ptr<uchar>(hips_height)[n];
+        if (black_white > 0) {
+            hips_right_x = n;
+        }
+    }
 }
 
 int Biotracking::calculateHipsHeight(cv::Mat& depth_image, int horizontal_plane_y_int, cv::Mat& black_white_image)
@@ -540,7 +567,7 @@ int Biotracking::showHorizontalPlane(cv::Mat& depth_image, cv::Mat& black_white_
 
 bool Biotracking::calculateAvgImage(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response)
 {
-	isCalculateAvgSrvCalled = true;
+    isCalculateAvgSrvCalled = true;
     return true;
 }
 
@@ -578,6 +605,17 @@ void Biotracking::processPointCloud2(const sensor_msgs::PointCloud2::ConstPtr& c
     neck_plane_pub_.publish(marker);
 }
 
+void Biotracking::drawHipsCirles(cv::Mat& image)
+{
+    if (hips_height < 0 || hips_height >= image.rows || hips_left_x == -1 || hips_right_x == -1)
+    {
+        return;
+    }
+    
+    cv::circle(image, cv::Point(hips_left_x, hips_height), 10, CV_RGB(255,0,0), CV_FILLED, 10,0);
+    cv::circle(image, cv::Point((hips_left_x + hips_right_x) / 2, hips_height), 10, CV_RGB(255,0,0), CV_FILLED, 10,0);
+    cv::circle(image, cv::Point(hips_right_x, hips_height), 10, CV_RGB(255,0,0), CV_FILLED, 10,0);
+}
 
 void Biotracking::rgbImageCb(const sensor_msgs::ImageConstPtr& msg)
 {
@@ -594,21 +632,26 @@ void Biotracking::rgbImageCb(const sensor_msgs::ImageConstPtr& msg)
       return;
     }
     
+    if (hips_height != -1)
+    {
+        drawHipsCirles(cv_ptr->image);
+    }
+    
     if (line_px != -1) {
         cv::line(cv_ptr->image, cv::Point(line_px, line_py), cv::Point(line_qx, line_qy), cv::Scalar(0,0,255));
     }
     
-    if (left_c != -1 && left_r != -1) 
-        cv::circle(cv_ptr->image, cv::Point(left_c, left_r), 10, CV_RGB(255,0,0), CV_FILLED, 10,0);
-    
-    if (right_c != -1 && right_r != -1) 
-        cv::circle(cv_ptr->image, cv::Point(right_c, right_r), 10, CV_RGB(255,0,0), CV_FILLED, 10,0);
-    
-    if (bottom_left_c != -1 && bottom_left_r != -1) 
-        cv::circle(cv_ptr->image, cv::Point(bottom_left_c, bottom_left_r), 10, CV_RGB(0,255,0), CV_FILLED, 10,0);
-    
-    if (bottom_right_c != -1 && bottom_right_r != -1) 
-        cv::circle(cv_ptr->image, cv::Point(bottom_right_c, bottom_right_r), 10, CV_RGB(0,255,0), CV_FILLED, 10,0);
+//     if (left_c != -1 && left_r != -1) 
+//         cv::circle(cv_ptr->image, cv::Point(left_c, left_r), 10, CV_RGB(255,0,0), CV_FILLED, 10,0);
+//     
+//     if (right_c != -1 && right_r != -1) 
+//         cv::circle(cv_ptr->image, cv::Point(right_c, right_r), 10, CV_RGB(255,0,0), CV_FILLED, 10,0);
+//     
+//     if (bottom_left_c != -1 && bottom_left_r != -1) 
+//         cv::circle(cv_ptr->image, cv::Point(bottom_left_c, bottom_left_r), 10, CV_RGB(0,255,0), CV_FILLED, 10,0);
+//     
+//     if (bottom_right_c != -1 && bottom_right_r != -1) 
+//         cv::circle(cv_ptr->image, cv::Point(bottom_right_c, bottom_right_r), 10, CV_RGB(0,255,0), CV_FILLED, 10,0);
     
     rgb_image_pub_.publish(cv_ptr->toImageMsg());
 }
