@@ -63,10 +63,10 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
         working_image_pub_ = it_.advertise("/biotracking/working_image", 1);
         avg_image_pub_ = it_.advertise("/biotracking/avg_image", 1);
         raw_image_8u_pub_ = it_.advertise("/biotracking/raw_image_8u", 1);
-        rgb_image_pub_ = it_.advertise("/biotracking/rgb_image_", 1);
-        mog2_pub_ = it_.advertise("/biotracking/mog2_image_", 1);
-        erosion_image_pub_ = it_.advertise("/biotracking/erosion_image_", 1);
-        
+        rgb_image_pub_ = it_.advertise("/biotracking/rgb_image", 1);
+        mog2_pub_ = it_.advertise("/biotracking/mog2_image", 1);
+        erosion_image_pub_ = it_.advertise("/biotracking/erosion_image", 1);
+        horizontal_pub_ = it_.advertise("/biotracking/horizontal_lines", 1);
         
         sub_camera_info_ = nh_.subscribe<sensor_msgs::CameraInfo>(camera_info_topic, 1, &Biotracking::cameraInfoCb, this);
         hasCameraInfo = false;
@@ -84,6 +84,15 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
     }
 }
 
+cv::Mat Biotracking::calculateHorizontalLines(cv::Mat& black_white_image)
+{
+	cv::Mat horizontal = black_white_image.clone();
+	int horizontalsize = horizontal.cols / 30;
+	cv::Mat horizontalStructure = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(horizontalsize,1));
+	erode(horizontal, horizontal, horizontalStructure, Point(-1, -1));
+    	dilate(horizontal, horizontal, horizontalStructure, Point(-1, -1));
+	return horizontal;
+}
 
 void Biotracking::cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg)
 {
@@ -358,6 +367,7 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     marker = getRectangleMarker(x, y, person_neck);
     neck_plane_pub_.publish(marker);
     
+    cv::Mat horizontal = calculateHorizontalLines(subtract_dst);
     
     image_pub_.publish(cv_ptr->toImageMsg());
 	sensor_msgs::ImagePtr msg_to_pub;
@@ -373,6 +383,8 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
 	subtract_image_pub_.publish(msg_to_pub);
 	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", erosion_dst).toImageMsg();
 	erosion_image_pub_.publish(msg_to_pub);
+	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", horizontal).toImageMsg();
+	horizontal_pub_.publish(msg_to_pub);
 // 	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "32FC1", fgMaskMOG2).toImageMsg();
 // 	mog2_pub_.publish(msg_to_pub);
     
