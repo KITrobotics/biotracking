@@ -35,6 +35,10 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
 
     nh_.param("person_hips", person_hips, 0.15);
     nh_.param("person_neck", person_neck, 0.52);
+    
+    nh_.param("hips_height_world", hips_height_world, 0.8);
+    nh_.param("camera_height_world", camera_height_world, 0.6);
+    
     nh_.param("camera_angle_radians", camera_angle_radians, 0.26);
     
     hips_plane_pub_ = nh_.advertise<visualization_msgs::Marker>("/biotracking/hips_plane_pub_", 10);
@@ -86,6 +90,12 @@ void Biotracking::cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg)
     if (!hasCameraInfo)
     {
         model_.fromCameraInfo(info_msg);
+        center_x = model_.cx();
+        center_y = model_.cy();
+        
+        double unit_scaling = depth_image_proc::DepthTraits<float>::toMeters( float(1) );
+        constant_x = unit_scaling / model_.fx();
+        constant_y = unit_scaling / model_.fy();
         hasCameraInfo = true;
     }
 }
@@ -237,79 +247,35 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     
     
 	
-// 	left_r = left_c = right_r = right_c = -1;
     for(int r = 5; r < subtract_dst.cols / 2; r++) {
-        // We obtain a pointer to the beginning of row r
-        // cv::Vec3b* ptr = subtract_dst.ptr<cv::Vec3b>(r);
-		uchar* ptr = subtract_dst.ptr<uchar>(r);
-
-		int left, right;
+        uchar* ptr = subtract_dst.ptr<uchar>(r);
+        int left, right;
         left = right = -1;
         for(int c = 0; c < subtract_dst.rows; c++) {
-            // We invert the blue and red values of the pixel
-            // ptr[c] = cv::Vec3b(ptr[c][2], ptr[c][1], ptr[c][0]);
-			if (ptr[c] > 0) {
-				left = c;
-				break;
-			}
+            if (ptr[c] > 0) {
+                    left = c;
+                    break;
+            }
         }
-    // x = c, y = r
-		for (int c = subtract_dst.rows - 1; c >= 0; c--) {
-			if (ptr[c] > 0) {
-				right = c;
-				break;
-			}
-		}
+        for (int c = subtract_dst.rows - 1; c >= 0; c--) {
+                if (ptr[c] > 0) {
+                        right = c;
+                        break;
+                }
+        }
 		
-		if (left == -1 || right == -1) { continue; }
-		
-		if (right - left > bottom_factor * (bottom_right_c - bottom_left_c)) {
+        if (left == -1 || right == -1) { continue; }
+        
+        if (right - left > bottom_factor * (bottom_right_c - bottom_left_c)) {
             left_r = right_r = r;
             left_c = left;
             right_c = right;
             
             break;
-		}
+        }
     }
     
-    PointCloud cloud;
-    cloud.header.frame_id = msg->header.frame_id;
     
-    
-    float center_x = model_.cx();
-    float center_y = model_.cy();
-    
-    double unit_scaling = depth_image_proc::DepthTraits<float>::toMeters( float(1) );
-    float constant_x = unit_scaling / model_.fx();
-    float constant_y = unit_scaling / model_.fy();
-    
-//     const float* depth_row = reinterpret_cast<const float*>(&msg->data[0]);
-//     int row_step = msg->step / sizeof(float);
-//     
-//     cloud.height = msg->height;
-//     cloud.width  = msg->width;
-// //     cloud.is_dense = false;
-// //     cloud.is_bigendian = false;
-//     
-//     for (int v = 0; v < int(cloud.height); ++v, depth_row += row_step) {
-//         for (int u = 0; u < int(cloud.width); ++u)
-//         {
-//             float depth = depth_row[u];
-//             if (!depth_image_proc::DepthTraits<float>::valid(depth))
-//             {
-// //                 *iter_x = *iter_y = *iter_z = bad_point;
-//             }
-//             else
-//             {
-//                 // Fill in XYZ
-//                 Point point;
-//                 point.x = (u - center_x) * depth * constant_x;
-//                 point.y = (v - center_y) * depth * constant_y;
-//                 point.z = depth_image_proc::DepthTraits<float>::toMeters(depth);
-//                 cloud.points.push_back(point);
-//             }
-//         }
-//     }
     
     int remove_left, remove_right;
     remove_left = remove_right = -1;
@@ -368,75 +334,17 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
      * Retrieving camera point of person hips height
      */
     
-    showHorizontalPlane(cv_ptr->image, subtract_dst);
+    int horizontal_plane_y_int = showHorizontalPlane(cv_ptr->image, subtract_dst);
     
-    
-    float needed_y_value = 1.;
-//     bool row_calculated = false;
-//     double camera_fx, camera_fy;
-//     camera_fx = camera_fy = 570.3422241210938;
-//     double camera_cx = 314.5;
-//     double camera_cy = 235.5;
-    bool foundLine = false;
-    bool hasText = false;
-    int textEvery50 = 0;
-    
-    double camera_zero_plane_x, camera_zero_plane_y;
-    double camera_zero_plane_z = -1;
-    double horizontal_plane_y = -1;
-    
-//     for (int m = 0; m < avg_image.rows; m++)
-//     {
-//         for (int n = 0; n < avg_image.cols; n++)
-//         {
-//             float d = cv_ptr->image.ptr<float>(m)[n];
-//             uchar black_white = subtract_dst.ptr<uchar>(m)[n];
-//             
-//             double z = d;
-//             double x = (n - center_x) * z * constant_x;
-//             double y = (m - center_y) * z * constant_y;
-//             
-//             if (!hasText && black_white > 0 && textEvery50 == 0) {
-//                 cv::putText(subtract_dst, "(" + std::to_string(x) + ", " + std::to_string(y) + ", " + std::to_string(z) + ")", cv::Point(n,m), 
-//                     cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,255,255), 1, CV_AA);
-//                 textEvery50 = 50;
-//             }
-//             
-//             if (d == 0 || d != d)
-//             {
-//                 continue;
-//             }
-//             
-//             
-//             
-//             
-//             Point p;
-//             p.x = x; p.y = y; p.z = z;
-//             cloud.points.push_back(p);
-//             
-// //             if (!foundLine && std::abs(y - needed_y_value) < 0.10 && black_white > 0) {
-// //                 ROS_INFO("m,n: (%d, %d), d: %f, x: %f, y: %f, y-0.7: %f", m, n, d, x, y, (y-0.7));
-//             
-//             
-//             
-//             if (!foundLine && std::abs(y - person_hips) < 0.10) {
-//                 line_px = 0;
-//                 line_py = line_qy = m;
-//                 line_qx = avg_image.cols - 1;
-//                 foundLine = true;
-//             }
-//         }
-//         
-//         if (textEvery50 > 0) {
-//             textEvery50--;
-//         }
-//     }
-    
-    if (line_py == avg_image.rows - 1) {
-        line_px = -1;
+    if (horizontal_plane_y_int != -1) 
+    {
+        calculateHipsHeight(cv_ptr->image, horizontal_plane_y_int, subtract_dst);
     }
     
-    calculated_point_cloud_publisher.publish(cloud);
+    
+//     showFirstFromLeftPoints(cv_ptr->image, subtract_dst, msg->header.frame_id);
+    
+    
     
     if (line_px != -1) {
         cv::line(subtract_dst, cv::Point(line_px, line_py), cv::Point(line_qx, line_qy), cv::Scalar(255,255,255));
@@ -448,14 +356,6 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     hips_plane_pub_.publish(marker);
     marker = getRectangleMarker(x, y, person_neck);
     neck_plane_pub_.publish(marker);
-    
-    
-
-    
-    
-    
-    
-    
     
     
     image_pub_.publish(cv_ptr->toImageMsg());
@@ -480,34 +380,137 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
 //     std::cin >> waitInt;
 }
 
-
-void Biotracking::showHorizontalPlane(cv::Mat& depth_image, cv::Mat& black_white_image)
+int Biotracking::calculateHipsHeight(cv::Mat& depth_image, int horizontal_plane_y_int, cv::Mat& black_white_image)
 {
-    float result = -1;
+    int center_x_int = static_cast<int>(model_.cx());
     
-    int center_x = static_cast<int>(model_.cx());
-    int center_y = static_cast<int>(model_.cy());
+    float hips_height_diff = hips_height_world;
+    int hips_height_row = -1;
     
-    float zero_plane_d = depth_image.ptr<float>(center_y)[center_x];
+    float horizontal_plane_y = depth_image.ptr<float>(horizontal_plane_y_int)[center_x_int];
     
-    double camera_zero_plane_x, camera_zero_plane_y;
-    double camera_zero_plane_z = -1;
+    float height_diff = camera_height_world - hips_height_world;
     
-    double horizontal_plane_y = -1;
-    double horizontal_plane_z = -1;
+    int for_begin = horizontal_plane_y_int;
+    int for_boundary = depth_image.rows;
+    int for_increment = 1;
     
-    float angle_diff = camera_angle_radians;
-    
-    for (int m = center_y + 1; m < depth_image.rows; m++)
+    if (height_diff < 0) // hips are higher than camera 
     {
-        float d = depth_image.ptr<float>(m)[center_x];
+        for_begin = 0;
+        for_boundary = horizontal_plane_y_int;
+        for_increment = -1;
+    }
+    
+    for (int m = for_begin; m < for_boundary; m += for_increment)
+    {
+        float d = depth_image.ptr<float>(m)[center_x_int];
             
         if (d == 0 || d != d)
         {
             continue;
         }
         
-        float y = (m - model_.cy()) * d * (1. / model_.cy());
+        int image_row = m;
+        if (height_diff < 0) // hips are higher than camera 
+        {
+            image_row = horizontal_plane_y_int - m;
+        }
+        
+        float x = (center_x_int - center_x) * d * constant_x;
+        float y = (image_row - center_y) * d * constant_y;
+        
+        float current_hips_height_diff = std::abs(std::abs(y - horizontal_plane_y) - std::abs(height_diff));
+        
+        if (current_hips_height_diff < hips_height_diff)
+        {
+            hips_height_diff = current_hips_height_diff;
+            hips_height_row = m;
+        }
+    }
+    
+    cv::putText(black_white_image, "hips: (" + std::to_string(center_x_int) + ", " + 
+            std::to_string(hips_height_row) + ")", cv::Point(center_x_int,hips_height_row), 
+            cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,255,255), 1, CV_AA);
+    
+    return hips_height_row;
+}
+
+int Biotracking::showFirstFromLeftPoints(cv::Mat& depth_image, cv::Mat& black_white_image, std::string frame_id)
+{
+    PointCloud cloud;
+    cloud.header.frame_id = frame_id;
+    
+    bool hasText = false;
+    int textEvery50 = 0;
+    
+    double camera_zero_plane_x, camera_zero_plane_y;
+    double camera_zero_plane_z = -1;
+    double horizontal_plane_y = -1;
+    
+    for (int m = 0; m < depth_image.rows; m++)
+    {
+        for (int n = 0; n < depth_image.cols; n++)
+        {
+            float d = depth_image.ptr<float>(m)[n];
+            
+            if (d == 0 || d != d)
+            {
+                continue;
+            }
+            
+            uchar black_white = black_white_image.ptr<uchar>(m)[n];
+            
+            double z = d;
+            double x = (n - center_x) * z * constant_x;
+            double y = (m - center_y) * z * constant_y;
+            
+            if (!hasText && black_white > 0 && textEvery50 == 0) {
+                cv::putText(black_white_image, "(" + std::to_string(x) + ", " + std::to_string(y) + ", " + std::to_string(z) + ")", cv::Point(n,m), 
+                    cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,255,255), 1, CV_AA);
+                textEvery50 = 50;
+            }
+            
+            Point p;
+            p.x = x; p.y = y; p.z = z;
+            cloud.points.push_back(p);
+            
+        }
+        
+        if (textEvery50 > 0) {
+            textEvery50--;
+        }
+    }
+    
+    if (line_py == avg_image.rows - 1) {
+        line_px = -1;
+    }
+    
+    calculated_point_cloud_publisher.publish(cloud);
+}
+
+int Biotracking::showHorizontalPlane(cv::Mat& depth_image, cv::Mat& black_white_image)
+{
+    int center_x_int = static_cast<int>(center_x);
+    int center_y_int = static_cast<int>(center_y);
+    
+    float zero_plane_d = depth_image.ptr<float>(center_y_int)[center_x_int];
+    
+    float horizontal_plane_y = -1;
+    float horizontal_plane_z = -1;
+    
+    float angle_diff = camera_angle_radians;
+    
+    for (int m = center_y_int + 1; m < depth_image.rows; m++)
+    {
+        float d = depth_image.ptr<float>(m)[center_x_int];
+            
+        if (d == 0 || d != d)
+        {
+            continue;
+        }
+        
+        float y = (m - center_y) * d * constant_y;
         
         float angle = std::asin(y / d);
         
@@ -523,13 +526,15 @@ void Biotracking::showHorizontalPlane(cv::Mat& depth_image, cv::Mat& black_white
         if (current_angle_diff > angle_diff) { break; }
     }
     
-    cv::putText(black_white_image, "zero plane: (" + std::to_string(center_x) + ", " + 
-            std::to_string(center_y) + ", " + std::to_string(zero_plane_d) + ")", cv::Point(center_x,center_y), 
+    cv::putText(black_white_image, "zero plane: (" + std::to_string(center_x_int) + ", " + 
+            std::to_string(center_y_int) + ", " + std::to_string(zero_plane_d) + ")", cv::Point(center_x_int,center_y_int), 
             cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,255,255), 1, CV_AA);
     
-    cv::putText(black_white_image, "horizontal plane: (" + std::to_string(center_x) + ", " + 
-            std::to_string(horizontal_plane_y) + ", " + std::to_string(horizontal_plane_z) + ")", cv::Point(center_x,horizontal_plane_y), 
+    cv::putText(black_white_image, "horizontal plane: (" + std::to_string(center_x_int) + ", " + 
+            std::to_string(horizontal_plane_y) + ", " + std::to_string(horizontal_plane_z) + ")", cv::Point(center_x_int,horizontal_plane_y), 
             cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,255,255), 1, CV_AA);
+    
+    return horizontal_plane_y;
 }
 
 

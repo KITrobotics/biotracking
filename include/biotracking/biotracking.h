@@ -104,6 +104,14 @@ private:
   double camera_angle_radians;
   
   double line_px, line_py, line_qx, line_qy;
+  double hips_height_world;
+  double camera_height_world;
+  
+  float center_x;
+  float center_y;
+
+  float constant_x;
+  float constant_y;
   
   
   std::string camera_frame_id;
@@ -123,7 +131,9 @@ private:
   void rgbImageCb(const sensor_msgs::ImageConstPtr& msg);
   bool calculateAvgImage(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response);
   visualization_msgs::Marker getRectangleMarker(double x, double y, double z);
-  void showHorizontalPlane(cv::Mat& depth_image, cv::Mat& black_white_image);
+  int showHorizontalPlane(cv::Mat& depth_image, cv::Mat& black_white_image);
+  int calculateHipsHeight(cv::Mat& depth_image, int horizontal_plane_y_int, cv::Mat& black_white_image);
+  int showFirstFromLeftPoints(cv::Mat& depth_image, cv::Mat& black_white_image, std::string frame_id);
   
   void cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg);
   ros::Subscriber sub_camera_info_;
