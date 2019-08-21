@@ -166,7 +166,7 @@ private:
   image_transport::Publisher rgb_image_pub_;
   image_transport::Publisher mog2_pub_;
   image_transport::Publisher erosion_image_pub_;
-  
+  image_transport::Publisher horizontal_pub_;
   
   
   
