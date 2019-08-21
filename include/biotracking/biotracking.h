@@ -123,7 +123,7 @@ private:
   void rgbImageCb(const sensor_msgs::ImageConstPtr& msg);
   bool calculateAvgImage(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response);
   visualization_msgs::Marker getRectangleMarker(double x, double y, double z);
-  
+  void showHorizontalPlane(cv::Mat& depth_image, cv::Mat& black_white_image);
   
   void cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg);
   ros::Subscriber sub_camera_info_;
