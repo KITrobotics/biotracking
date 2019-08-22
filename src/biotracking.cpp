@@ -475,6 +475,54 @@ int Biotracking::calculateHipsHeight(cv::Mat& depth_image, int horizontal_plane_
     return hips_height_row;
 }
 
+void Biotracking::showSlopeLines(cv::Mat& black_white_image)
+{
+	std::vector<Point> left_points;
+	for (int m = 0; m < black_white_image.rows * 0.7; m++)
+   	{
+		for (int n = 0; n < black_white_image.cols; n++)
+		{
+			uchar black_white = black_white_image.ptr<uchar>(m)[n];
+			if (black_white > 0)
+			{
+				Point p;
+				p.x = (n - center_x) * z * constant_x;
+				p.y = (m - center_y) * z * constant_y;
+				left_points.push_back(p);
+			}
+		}
+	}
+	
+	std::vector<Point> right_points;
+	for (int m = 0; m < black_white_image.rows * 0.7; m++)
+   	{
+		for (int n = black_white_image.cols - 1; n > 0; n--)
+		{
+			uchar black_white = black_white_image.ptr<uchar>(m)[n];
+			if (black_white > 0)
+			{
+				Point p;
+				p.x = (n - center_x) * z * constant_x;
+				p.y = (m - center_y) * z * constant_y;
+				right_points.push_back(p);
+			}
+		}
+	}
+	
+	// int min_points_size = std::min(left_points.size(), right_points.size());
+	std::vector<float> slopes;
+	for (int i = 0; i < left_points.size() - 5; i++)
+	{
+		Point& fst_pt = left_points[i];
+		Point& snd_pt = left_points[i + 5];
+		if (snd_pt.x - fst_pt.x == 0) { continue; }
+		float slope = (snd_pt.y - fst_pt.y) / (snd_pt.x - fst_pt.x);
+		slopes.push_back(slope);
+	}
+	
+	
+}
+
 int Biotracking::showFirstFromLeftPoints(cv::Mat& depth_image, cv::Mat& black_white_image, std::string frame_id)
 {
     PointCloud cloud;
