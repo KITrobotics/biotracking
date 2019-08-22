@@ -117,6 +117,14 @@ private:
   int hips_left_x;
   int hips_right_x;
   
+  std::vector<Point> left_points;
+	std::vector<Point> left_points_positions;
+	std::vector<Point> right_points;
+	std::vector<Point> right_points_positions;
+	std::vector<int> left_slopes_indices;
+	std::vector<int> right_slopes_indices;
+  
+  
   
   std::string camera_frame_id;
   std::string person_hips_frame_id;
