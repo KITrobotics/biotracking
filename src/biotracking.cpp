@@ -84,6 +84,254 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
     }
 }
 
+void Biotracking::drawFirstLineWithEnoughPoints(cv::Mat black_white_image)
+{
+    int max_points = 0;
+    int max_left_point = black_white_image.rows - 1;
+    int max_right_ponit = -1;
+    for(int global_r = 0; global_r < black_white_image.rows * 0.4; global_r++) {
+        int current_points = 0;
+        int left_point = black_white_image.rows - 1;
+        int right_point = -1;
+        for(int r = global_r; r < global_r + 10; r++) {
+            for(int c = 0; c < black_white_image.cols; c++) {
+                uchar black_white = black_white_image.ptr<uchar>(r)[c];
+                if (black_white > 0) 
+                {
+                    if (c < left_point) { left_point = c; }
+                    if (c > right_point) { right_point = c; }
+                    current_points++;
+                }
+            }
+        }
+        if (current_points > max_points)
+        {
+            max_points = current_points;
+            max_left_point = left_point;
+            max_right_ponit = right_point;
+            continue;
+        }
+        if (left_point != black_white_image.rows - 1 && right_point != -1 && hips_left_x != -1 && hips_right_x != -1)
+        {
+            if (max_points > 90 && max_left_point < hips_left_x && max_right_ponit > hips_right_x)
+            {
+                cv::line(black_white_image, cv::Point(max_left_point, global_r + 5), cv::Point(max_right_ponit, global_r + 5), cv::Scalar(255,255,255), 1);
+                break;
+            }
+        }
+    }
+}
+
+cv::Mat Biotracking::calculateFirstLeftPoints(cv::Mat& black_white_image)
+{
+//     PointCloud cloud;
+//     cloud.header.frame_id = camera_frame_id;
+    std::vector<cv::Point>& nzPoints
+    cv::Mat result = cv::Mat(black_white_image.rows, black_white_image.cols, CV_8UC1, cv::Scalar(0));
+    int prev_r = -1;
+    int prev_c = -1;
+    for(int r = black_white_image.rows - 1; r > 0; r--) {
+        for(int c = 0; c < black_white_image.cols; c++) {
+            uchar black_white = black_white_image.ptr<uchar>(r)[c];
+            if (black_white > 0) 
+            {
+                if (prev_r != -1 && prev_c != -1) {
+                    int px_diff = std::abs(prev_r - r) + std::abs(prev_c - c);
+                    if (px_diff < 30) {
+                        result.ptr<uchar>(r)[c] = black_white;
+                        prev_r = r;
+                        prev_c = c;
+//                         Point p; p.x = c; p.y = r;
+//                         cloud.points.push_back(p);
+                        nzPoints.push_back(cv::Point(c,r));
+                    }
+                    break;
+                } else {
+                    prev_r = r;
+                    prev_c = c;
+                    result.ptr<uchar>(r)[c] = black_white;
+//                     Point p; p.x = c; p.y = r;
+//                     cloud.points.push_back(p);
+                    nzPoints.push_back(cv::Point(c,r));
+                    break;
+                }
+            }
+        }
+    }
+    
+    
+    SLine line = LineFitRANSAC(1., 0.5, 0.2,
+        nzPoints.size() * 0.5, nzPoints);
+    
+//     pcl::SampleConsensusModelLine<Point>::Ptr model_line(new pcl::SampleConsensusModelLine<Point> (cloud.makeShared()));
+//     pcl::RandomSampleConsensus<Point> ransac(model_line);
+//     ransac.setDistanceThreshold (1.);
+//     ransac.computeModel();
+//     std::vector<int> inliers;
+//     ransac.getInliers(inliers);
+//     left_line_px = static_cast<int>(cloud.points[inliers[0]].x);
+//     left_line_py = static_cast<int>(cloud.points[inliers[0]].y);
+//     left_line_qx = static_cast<int>(cloud.points[inliers[inliers.size() - 1]].x);
+//     left_line_qy = static_cast<int>(cloud.points[inliers[inliers.size() - 1]].y);
+    
+    return result;
+}
+
+SLine Biotracking::LineFitRANSAC(
+    float t,//distance from main line
+    float p,//chance of hitting a valid pair
+    float e,//percentage of outliers
+    int T,//number of expected minimum inliers 
+    std::vector<cv::Point>& nzPoints)
+{
+    int s = 2;//number of points required by the model
+    int N = (int)ceilf(log(1-p)/log(1 - pow(1-e, s)));//number of independent trials
+
+    std::vector<SLine> lineCandidates;
+    std::vector<int> ptOnLine(nzPoints.size());//is inlier
+    RNG rng((uint64)-1);
+    SLine line;
+    for (int i = 0; i < N; i++)
+    {
+        //pick two points
+        int idx1 = (int)rng.uniform(0, (int)nzPoints.size());
+        int idx2 = (int)rng.uniform(0, (int)nzPoints.size());
+        cv::Point p1 = nzPoints[idx1];
+        cv::Point p2 = nzPoints[idx2];
+
+        //points too close - discard
+        if (cv::norm(p1- p2) < t)
+        {
+            continue;
+        }
+
+        //line equation ->  (y1 - y2)X + (x2 - x1)Y + x1y2 - x2y1 = 0 
+        float a = static_cast<float>(p1.y - p2.y);
+        float b = static_cast<float>(p2.x - p1.x);
+        float c = static_cast<float>(p1.x*p2.y - p2.x*p1.y);
+        //normalize them
+        float scale = 1.f/sqrt(a*a + b*b);
+        a *= scale;
+        b *= scale;
+        c *= scale;
+
+        //count inliers
+        int numOfInliers = 0;
+        for (size_t i = 0; i < nzPoints.size(); ++i)
+        {
+            cv::Point& p0 = nzPoints[i];
+            float rho      = abs(a*p0.x + b*p0.y + c);
+            bool isInlier  = rho  < t;
+            if ( isInlier ) numOfInliers++;
+            ptOnLine[i]    = isInlier;
+        }
+
+        if ( numOfInliers < T)
+        {
+            continue;
+        }
+
+        line.params = TotalLeastSquares( nzPoints, ptOnLine);
+        line.numOfValidPoints = numOfInliers;
+        lineCandidates.push_back(line);
+    }
+
+    int bestLineIdx = 0;
+    int bestLineScore = 0;
+    for (size_t i = 0; i < lineCandidates.size(); i++)
+    {
+        if (lineCandidates[i].numOfValidPoints > bestLineScore)
+        {
+            bestLineIdx = i;
+            bestLineScore = lineCandidates[i].numOfValidPoints;
+        }
+    }
+
+    if ( lineCandidates.empty() )
+    {
+        return SLine();
+    }
+    else
+    {
+        return lineCandidates[bestLineIdx];
+    }
+}
+
+
+
+cv::Vec4f Biotracking::TotalLeastSquares(
+    std::vector<cv::Point>& nzPoints,
+    std::vector<int> ptOnLine)
+{
+    //if there are enough inliers calculate model
+    float x = 0, y = 0, x2 = 0, y2 = 0, xy = 0, w = 0;
+    float dx2, dy2, dxy;
+    float t;
+    for( size_t i = 0; i < nzPoints.size(); ++i )
+    {
+        x += ptOnLine[i] * nzPoints[i].x;
+        y += ptOnLine[i] * nzPoints[i].y;
+        x2 += ptOnLine[i] * nzPoints[i].x * nzPoints[i].x;
+        y2 += ptOnLine[i] * nzPoints[i].y * nzPoints[i].y;
+        xy += ptOnLine[i] * nzPoints[i].x * nzPoints[i].y;
+        w += ptOnLine[i];
+    }
+
+    x /= w;
+    y /= w;
+    x2 /= w;
+    y2 /= w;
+    xy /= w;
+
+    //Covariance matrix
+    dx2 = x2 - x * x;
+    dy2 = y2 - y * y;
+    dxy = xy - x * y;
+
+    t = (float) atan2( 2 * dxy, dx2 - dy2 ) / 2;
+    cv::Vec4f line;
+    line[0] = (float) cos( t );
+    line[1] = (float) sin( t );
+
+    line[2] = (float) x;
+    line[3] = (float) y;
+
+    return line;
+}
+
+
+cv::Mat Biotracking::calculateFirstRightPoints(cv::Mat& black_white_image)
+{
+    cv::Mat result = cv::Mat(black_white_image.rows, black_white_image.cols, CV_8UC1, cv::Scalar(0));
+    for(int r = 0; r < black_white_image.rows; r++) {
+        for(int c = black_white_image.cols - 1; c > 0; c--) {
+            uchar black_white = black_white_image.ptr<uchar>(r)[c];
+            if (black_white > 0) 
+            {
+                result.ptr<uchar>(r)[c] = black_white;
+                break;
+            }
+        }
+    }
+    return result;
+}
+
+cv::Mat Biotracking::calculateTopPoints(cv::Mat& black_white_image)
+{
+    cv::Mat result = cv::Mat(black_white_image.rows, black_white_image.cols, CV_8UC1, cv::Scalar(0));
+    for(int c = 0; c < black_white_image.cols; c++) {
+        for(int r = 0; r < black_white_image.rows; r++) {
+            uchar black_white = black_white_image.ptr<uchar>(r)[c];
+            if (black_white > 0) 
+            {
+                result.ptr<uchar>(r)[c] = black_white;
+                break;
+            }
+        }
+    }
+    return result;
+}
+
 cv::Mat Biotracking::calculateHorizontalLines(cv::Mat& black_white_image)
 {
 	cv::Mat horizontal = black_white_image.clone();
@@ -113,6 +361,7 @@ void Biotracking::cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg)
 void Biotracking::setUpVariables()
 {
     hips_height = hips_left_x = hips_right_x = -1;
+    left_line_px = left_line_py = left_line_qx = left_line_qy = -1;
 }
 
 void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
@@ -362,7 +611,10 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     calculateSlopeLines(subtract_dst, cv_ptr->image);
 
     
-    cv::Mat horizontal = calculateHorizontalLines(subtract_dst);
+//     cv::Mat horizontal = calculateHorizontalLines(subtract_dst);
+    
+//     cv::Mat top_points = calculateTopPoints(subtract_dst);
+    cv::Mat top_points = calculateFirstLeftPoints(subtract_dst);
 
     
 //     showFirstFromLeftPoints(cv_ptr->image, subtract_dst, msg->header.frame_id);
@@ -395,7 +647,7 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
 	subtract_image_pub_.publish(msg_to_pub);
 	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", erosion_dst).toImageMsg();
 	erosion_image_pub_.publish(msg_to_pub);
-	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", horizontal).toImageMsg();
+	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", top_points).toImageMsg();
 	horizontal_pub_.publish(msg_to_pub);
 // 	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "32FC1", fgMaskMOG2).toImageMsg();
 // 	mog2_pub_.publish(msg_to_pub);
@@ -453,7 +705,7 @@ int Biotracking::calculateHipsHeight(cv::Mat& depth_image, int horizontal_plane_
     
     float height_diff = camera_height_world - hips_height_world;
     
-    float hips_height_in_camera = horizontal_plane_y + height_diff;
+    float hips_height_in_camera = horizontal_plane_y + height_diff * horizontal_plane_d;
     
     float hips_height_row_float = hips_height_in_camera * (1. / constant_y) * (1. / horizontal_plane_d) + center_y;
     hips_height_row = static_cast<int>(hips_height_row_float);
@@ -553,10 +805,10 @@ void Biotracking::calculateSlopeLines(cv::Mat& black_white_image, cv::Mat& depth
 	}
 	
 	// int min_points_size = std::min(left_points.size(), right_points.size());
-	for (int i = 0; i < left_points.size() - 5; i++)
+	for (int i = 0; i < left_points.size() - 10; i++)
 	{
 		Point& fst_pt = left_points[i];
-		Point& snd_pt = left_points[i + 5];
+		Point& snd_pt = left_points[i + 10];
 		if (snd_pt.x - fst_pt.x == 0) { continue; }
 		float slope = (snd_pt.y - fst_pt.y) / (snd_pt.x - fst_pt.x);
 		if (slope == 1)
@@ -565,10 +817,10 @@ void Biotracking::calculateSlopeLines(cv::Mat& black_white_image, cv::Mat& depth
 		}
 	}
 	
-	for (int i = 0; i < right_points.size() - 5; i++)
+	for (int i = 0; i < right_points.size() - 10; i++)
 	{
 		Point& fst_pt = right_points[i];
-		Point& snd_pt = right_points[i + 5];
+		Point& snd_pt = right_points[i + 10];
 		if (snd_pt.x - fst_pt.x == 0) { continue; }
 		float slope = (snd_pt.y - fst_pt.y) / (snd_pt.x - fst_pt.x);
 		if (slope == -1)
@@ -735,18 +987,35 @@ void Biotracking::drawHipsCirles(cv::Mat& image)
 void Biotracking::drawShoulderLine(cv::Mat& image)
 {
 	if (hips_height < 0 || hips_height >= image.rows || hips_left_x == -1 || hips_right_x == -1)
-        {
+    {
 		return;
 	}
+	
+// 	for (int i = 0; i < left_points_positions.size(); i++)
+// 	{
+//         for (int j = 0; j < right_points_positions.size(); j++)
+//             if (std::abs(right_points_positions[i].y - left_points_positions[i].y) > 3
+// 		Point& left_pt = left_points_positions[i];
+// 		Point& right_pt = right_points_positions[i];
+//         ROS_INFO("line %d from (%f, %f) to (%f, %f)", i, left_pt.x, left_pt.y, right_pt.x, right_pt.y);
+// 			cv::line(image, cv::Point(left_pt.x, left_pt.y), 
+// 				 cv::Point(right_pt.x, right_pt.y), cv::Scalar(0,0,0));
+// 		if (left_pt.x < hips_left_x && right_pt.x > hips_right_x)
+// 		{
+// 			break;
+// 		}
+// 		
+// 	}
 	
  	for (int i = 0; i < std::min(left_points_positions.size(), right_points_positions.size()); i++)
 	{
 		Point& left_pt = left_points_positions[i];
 		Point& right_pt = right_points_positions[i];
+        ROS_INFO("line %d from (%f, %f) to (%f, %f)", i, left_pt.x, left_pt.y, right_pt.x, right_pt.y);
+			cv::line(image, cv::Point(left_pt.x, left_pt.y), 
+				 cv::Point(right_pt.x, right_pt.y), cv::Scalar(0,0,0));
 		if (left_pt.x < hips_left_x && right_pt.x > hips_right_x)
 		{
-			cv::line(image, cv::Point(left_pt.x, left_pt.y), 
-				 cv::Point(right_pt.x, right_pt.y), cv::Scalar(0,255,255));
 			break;
 		}
 		
@@ -766,8 +1035,14 @@ void Biotracking::drawSlopeCircles(cv::Mat& image)
 		Point& p = right_points_positions[right_slopes_indices[i]];
         cv::circle(image, cv::Point(p.x, p.y), 5, CV_RGB(255,255,0), CV_FILLED, 10, 0);
 	}
-	
-	clearVectors();
+}
+
+void Biotracking::drawLeftLine(cv::Mat& image)
+{
+    if (left_line_px != -1)
+    {
+        cv::line(image, cv::Point(left_line_px, left_line_py), cv::Point(left_line_qx, left_line_qy), cv::Scalar(0,0,255));
+    }
 }
 
 void Biotracking::clearVectors()
@@ -807,6 +1082,8 @@ void Biotracking::rgbImageCb(const sensor_msgs::ImageConstPtr& msg)
     drawSlopeCircles(cv_ptr->image);
 	
     drawShoulderLine(cv_ptr->image);
+    
+    drawLeftLine(cv_ptr->image);
     
 //     if (left_c != -1 && left_r != -1) 
 //         cv::circle(cv_ptr->image, cv::Point(left_c, left_r), 10, CV_RGB(255,0,0), CV_FILLED, 10,0);

@@ -62,10 +62,26 @@
 #include <depth_image_proc/depth_traits.h>
 
 
+#include <pcl/sample_consensus/ransac.h>
+#include <pcl/sample_consensus/sac_model_line.h>
+
+
 static const std::string OPENCV_WINDOW = "Image window";
 
 typedef pcl::PointXYZRGB Point;
 typedef pcl::PointCloud<Point> PointCloud;
+
+
+struct SLine
+{
+    SLine():
+        numOfValidPoints(0),
+        params(-1.f, -1.f, -1.f, -1.f)
+    {}
+    cv::Vec4f params;//(cos(t), sin(t), X0, Y0)
+    int numOfValidPoints;
+};
+
 
 class Biotracking
 {
@@ -125,6 +141,11 @@ private:
 	std::vector<int> right_slopes_indices;
   
   
+  float left_line_px;
+  float left_line_py;
+  float left_line_qx;
+  float left_line_qy;
+    
   
   std::string camera_frame_id;
   std::string person_hips_frame_id;
@@ -154,6 +175,11 @@ private:
   cv::Mat calculateHorizontalLines(cv::Mat& black_white_image);
   void clearVectors();
   void setUpVariables();
+  cv::Mat calculateTopPoints(cv::Mat& black_white_image);
+  void drawFirstLineWithEnoughPoints(cv::Mat black_white_image);
+  cv::Mat calculateFirstLeftPoints(cv::Mat& black_white_image);
+  cv::Mat calculateFirstRightPoints(cv::Mat& black_white_image);
+  void drawLeftLine(cv::Mat& image);
   
   void cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg);
   ros::Subscriber sub_camera_info_;
@@ -188,7 +214,15 @@ private:
 public:
   ros::ServiceServer calculateAvgService;
   Biotracking(ros::NodeHandle nh);
-  
+  cv::Vec4f TotalLeastSquares(
+    std::vector<cv::Point>& nzPoints,
+    std::vector<int> ptOnLine);
+  SLine LineFitRANSAC(
+    float t,//distance from main line
+    float p,//chance of hitting a valid pair
+    float e,//percentage of outliers
+    int T,//number of expected minimum inliers 
+    std::vector<cv::Point>& nzPoints);
   ~Biotracking() {}
   
 };
