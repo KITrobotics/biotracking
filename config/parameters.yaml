@@ -14,7 +14,7 @@ usePCL: false
 #person_neck: 0.4
 person_hips: 0.2
 hips_height_world: 0.8
-camera_height_world: 0.6
+camera_height_world: 0.75
 person_hips_frame_id: base_link
 person_neck: 0.4
 useCentroid: true

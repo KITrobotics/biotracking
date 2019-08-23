@@ -148,6 +148,12 @@ private:
   int showFirstFromLeftPoints(cv::Mat& depth_image, cv::Mat& black_white_image, std::string frame_id);
   void calculateHipsLeftRightX(cv::Mat& black_white_image);
   void drawHipsCirles(cv::Mat& image);
+  void calculateSlopeLines(cv::Mat& black_white_image, cv::Mat& depth_image);
+  void drawShoulderLine(cv::Mat& image);
+  void drawSlopeCircles(cv::Mat& image);
+  cv::Mat calculateHorizontalLines(cv::Mat& black_white_image);
+  void clearVectors();
+  void setUpVariables();
   
   void cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg);
   ros::Subscriber sub_camera_info_;

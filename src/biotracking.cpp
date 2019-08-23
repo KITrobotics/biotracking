@@ -89,8 +89,8 @@ cv::Mat Biotracking::calculateHorizontalLines(cv::Mat& black_white_image)
 	cv::Mat horizontal = black_white_image.clone();
 	int horizontalsize = horizontal.cols / 30;
 	cv::Mat horizontalStructure = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(horizontalsize,1));
-	erode(horizontal, horizontal, horizontalStructure, Point(-1, -1));
-    	dilate(horizontal, horizontal, horizontalStructure, Point(-1, -1));
+	erode(horizontal, horizontal, horizontalStructure, cv::Point(-1, -1));
+    dilate(horizontal, horizontal, horizontalStructure, cv::Point(-1, -1));
 	return horizontal;
 }
 
@@ -110,9 +110,16 @@ void Biotracking::cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg)
 }
 
 
+void Biotracking::setUpVariables()
+{
+    hips_height = hips_left_x = hips_right_x = -1;
+}
+
 void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
 {
 	if (!isCalculateAvgSrvCalled) { return; }
+	
+	setUpVariables();
 	
     cv_bridge::CvImagePtr cv_ptr;
     try
@@ -353,13 +360,18 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     
     
     calculateSlopeLines(subtract_dst, cv_ptr->image);
+
+    
+    cv::Mat horizontal = calculateHorizontalLines(subtract_dst);
+
+    
 //     showFirstFromLeftPoints(cv_ptr->image, subtract_dst, msg->header.frame_id);
     
     
     
-    if (line_px != -1) {
-        cv::line(subtract_dst, cv::Point(line_px, line_py), cv::Point(line_qx, line_qy), cv::Scalar(255,255,255));
-    }
+//     if (line_px != -1) {
+//         cv::line(subtract_dst, cv::Point(line_px, line_py), cv::Point(line_qx, line_qy), cv::Scalar(255,255,255));
+//     }
     
     double x = upper_limit - lower_limit;
     double y = 0.0;
@@ -368,7 +380,6 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     marker = getRectangleMarker(x, y, person_neck);
     neck_plane_pub_.publish(marker);
     
-    cv::Mat horizontal = calculateHorizontalLines(subtract_dst);
     
     image_pub_.publish(cv_ptr->toImageMsg());
 	sensor_msgs::ImagePtr msg_to_pub;
@@ -397,7 +408,7 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
 void Biotracking::calculateHipsLeftRightX(cv::Mat& black_white_image)
 {   
     bool found_white = false;
-    for (int n = 0; n < black_white_image.cols; n++)
+    for (int n = 1; n < black_white_image.cols; n++)
     {
         uchar black_white = black_white_image.ptr<uchar>(hips_height)[n];
         if (black_white > 0) {
@@ -406,18 +417,20 @@ void Biotracking::calculateHipsLeftRightX(cv::Mat& black_white_image)
         }
     }
     
+    ROS_INFO("hips_left_x: %d", hips_left_x);
     if (!found_white) {
         hips_left_x = hips_right_x = -1;
         return;
     }
     
-    for (int n = black_white_image.cols - 1; n > hips_left_x; n--)
+    for (int n = black_white_image.cols - 1; n > 0; n--)
     {
         uchar black_white = black_white_image.ptr<uchar>(hips_height)[n];
         if (black_white > 0) {
             hips_right_x = n;
         }
     }
+    ROS_INFO("hips_right_x: %d", hips_right_x);
 	
 	if (std::abs(hips_left_x - hips_right_x) < 10)
 	{
@@ -428,26 +441,36 @@ void Biotracking::calculateHipsLeftRightX(cv::Mat& black_white_image)
 int Biotracking::calculateHipsHeight(cv::Mat& depth_image, int horizontal_plane_y_int, cv::Mat& black_white_image)
 {
     int center_x_int = static_cast<int>(model_.cx());
-    
     float hips_height_diff = hips_height_world;
     int hips_height_row = -1;
     
-    float horizontal_plane_y = depth_image.ptr<float>(horizontal_plane_y_int)[center_x_int];
+    float horizontal_plane_d = depth_image.ptr<float>(horizontal_plane_y_int)[center_x_int];
+    if (horizontal_plane_d == 0 || horizontal_plane_d != horizontal_plane_d)
+    {
+        horizontal_plane_d = 1.;
+    }
+    float horizontal_plane_y = (horizontal_plane_y_int - center_y) * horizontal_plane_d * constant_y;
     
     float height_diff = camera_height_world - hips_height_world;
     
+    float hips_height_in_camera = horizontal_plane_y + height_diff;
+    
+    float hips_height_row_float = hips_height_in_camera * (1. / constant_y) * (1. / horizontal_plane_d) + center_y;
+    hips_height_row = static_cast<int>(hips_height_row_float);
+    ROS_INFO("horizontal_plane_d: %f, horizontal_plane_y: %f, height_diff: %f, hips_height_in_camera: %f, hips_height_row_float: %f, hips_height_row: %d",
+             horizontal_plane_d, horizontal_plane_y, height_diff, hips_height_in_camera, hips_height_row_float, hips_height_row);
+    
+    /*
     int for_begin = horizontal_plane_y_int;
     int for_boundary = depth_image.rows;
-    int for_increment = 1;
     
     if (height_diff < 0) // hips are higher than camera 
     {
         for_begin = 0;
         for_boundary = horizontal_plane_y_int;
-        for_increment = -1;
     }
     
-    for (int m = for_begin; m < for_boundary; m += for_increment)
+    for (int m = for_begin; m < for_boundary; m++)
     {
         float d = depth_image.ptr<float>(m)[center_x_int];
             
@@ -474,16 +497,19 @@ int Biotracking::calculateHipsHeight(cv::Mat& depth_image, int horizontal_plane_
         }
     }
     
-    cv::putText(black_white_image, "hips: (" + std::to_string(center_x_int) + ", " + 
+    if (hips_height_row != -1) 
+    {
+        cv::putText(black_white_image, "hips: (" + std::to_string(center_x_int) + ", " + 
             std::to_string(hips_height_row) + ")", cv::Point(center_x_int,hips_height_row), 
             cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,255,255), 1, CV_AA);
+    }*/
     
     return hips_height_row;
 }
 
 void Biotracking::calculateSlopeLines(cv::Mat& black_white_image, cv::Mat& depth_image)
 {
-	
+	clearVectors();
 	for (int m = 0; m < black_white_image.rows * 0.7; m++)
    	{
 		for (int n = 0; n < black_white_image.cols; n++)
@@ -493,7 +519,7 @@ void Biotracking::calculateSlopeLines(cv::Mat& black_white_image, cv::Mat& depth
 			{
 				Point p;
 				p.z = depth_image.ptr<float>(m)[n]; 
-				if (p.z == 0 || p.z != p.z) { p.z = 1. }
+				if (p.z == 0 || p.z != p.z) { p.z = 1.; }
 				p.x = (n - center_x) * p.z * constant_x;
 				p.y = (m - center_y) * p.z * constant_y;
 				left_points.push_back(p);
@@ -514,7 +540,7 @@ void Biotracking::calculateSlopeLines(cv::Mat& black_white_image, cv::Mat& depth
 			{
 				Point p;
 				p.z = depth_image.ptr<float>(m)[n]; 
-				if (p.z == 0 || p.z != p.z) { p.z = 1. }
+				if (p.z == 0 || p.z != p.z) { p.z = 1.; }
 				p.x = (n - center_x) * p.z * constant_x;
 				p.y = (m - center_y) * p.z * constant_y;
 				right_points.push_back(p);
@@ -644,11 +670,11 @@ int Biotracking::showHorizontalPlane(cv::Mat& depth_image, cv::Mat& black_white_
     
     cv::putText(black_white_image, "zero plane: (" + std::to_string(center_x_int) + ", " + 
             std::to_string(center_y_int) + ", " + std::to_string(zero_plane_d) + ")", cv::Point(center_x_int,center_y_int), 
-            cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,255,255), 1, CV_AA);
+            cv::FONT_HERSHEY_COMPLEX_SMALL, 0.5, cv::Scalar(255,255,255), 1, CV_AA);
     
     cv::putText(black_white_image, "horizontal plane: (" + std::to_string(center_x_int) + ", " + 
             std::to_string(horizontal_plane_y) + ", " + std::to_string(horizontal_plane_z) + ")", cv::Point(center_x_int,horizontal_plane_y), 
-            cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,255,255), 1, CV_AA);
+            cv::FONT_HERSHEY_COMPLEX_SMALL, 0.5, cv::Scalar(255,255,255), 1, CV_AA);
     
     return horizontal_plane_y;
 }
@@ -732,13 +758,26 @@ void Biotracking::drawSlopeCircles(cv::Mat& image)
  	for (int i = 0; i < left_slopes_indices.size(); i++)
 	{
 		Point& p = left_points_positions[left_slopes_indices[i]];
-    		cv::circle(image, cv::Point(p.x, p.y), 5, CV_RGB(0,255,0), CV_FILLED, 10, 0);
+        cv::circle(image, cv::Point(p.x, p.y), 5, CV_RGB(0,255,0), CV_FILLED, 10, 0);
 	}
+	
 	for (int i = 0; i < right_slopes_indices.size(); i++)
 	{
 		Point& p = right_points_positions[right_slopes_indices[i]];
-    		cv::circle(image, cv::Point(p.x, p.y), 5, CV_RGB(255,255,0), CV_FILLED, 10, 0);
+        cv::circle(image, cv::Point(p.x, p.y), 5, CV_RGB(255,255,0), CV_FILLED, 10, 0);
 	}
+	
+	clearVectors();
+}
+
+void Biotracking::clearVectors()
+{
+    left_points.clear();
+	left_points_positions.clear();
+	right_points.clear();
+	right_points_positions.clear();
+	left_slopes_indices.clear();
+	right_slopes_indices.clear();
 }
 
 void Biotracking::rgbImageCb(const sensor_msgs::ImageConstPtr& msg)
