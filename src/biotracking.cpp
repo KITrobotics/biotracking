@@ -170,7 +170,7 @@ cv::Mat Biotracking::calculateFirstLeftPoints(cv::Mat& black_white_image)
     pt1.y = cvRound(line[3] - line[1] * t);
     pt2.x = cvRound(line[2] + line[0] * t);
     pt2.y = cvRound(line[3] + line[1] * t);
-    cv::line(result, pt1, pt2, cv::Scalar(255, 255, 255), 3, CV_AA, 0);
+    cv::line(black_white_image, pt1, pt2, cv::Scalar(255, 255, 255), 3, CV_AA, 0);
 
     
     //SLine line = LineFitRANSAC(1., 0.5, 0.2,
@@ -315,17 +315,48 @@ cv::Vec4f Biotracking::TotalLeastSquares(
 
 cv::Mat Biotracking::calculateFirstRightPoints(cv::Mat& black_white_image)
 {
+    std::vector<cv::Point> nzPoints;
     cv::Mat result = cv::Mat(black_white_image.rows, black_white_image.cols, CV_8UC1, cv::Scalar(0));
-    for(int r = 0; r < black_white_image.rows; r++) {
+    int prev_r = -1;
+    int prev_c = -1;
+    for(int r = black_white_image.rows - 1; r > 0; r--) {
         for(int c = black_white_image.cols - 1; c > 0; c--) {
             uchar black_white = black_white_image.ptr<uchar>(r)[c];
             if (black_white > 0) 
             {
-                result.ptr<uchar>(r)[c] = black_white;
-                break;
+                if (prev_r != -1 && prev_c != -1) {
+                    int px_diff = std::abs(prev_r - r) + std::abs(prev_c - c);
+                    if (px_diff < 30) {
+                        result.ptr<uchar>(r)[c] = black_white;
+                        prev_r = r;
+                        prev_c = c;
+                        nzPoints.push_back(cv::Point(c,r));
+                    }
+                    break;
+                } else {
+                    prev_r = r;
+                    prev_c = c;
+                    result.ptr<uchar>(r)[c] = black_white;
+                    nzPoints.push_back(cv::Point(c,r));
+                    break;
+                }
             }
         }
     }
+	
+    cv::Vec4f line;
+    cv::fitLine(nzPoints, line, cv::DIST_L1, 1, 0.001, 0.001);
+    float d = std::sqrt((double) line[0] * line[0] + (double) line[1] * line[1]);
+    line[0] /= d;
+    line[1] /= d;
+    float t = (float) (result.cols + result.rows);
+    cv::Point pt1, pt2;
+    pt1.x = cvRound(line[2] - line[0] * t);
+    pt1.y = cvRound(line[3] - line[1] * t);
+    pt2.x = cvRound(line[2] + line[0] * t);
+    pt2.y = cvRound(line[3] + line[1] * t);
+    cv::line(black_white_image, pt1, pt2, cv::Scalar(255, 255, 255), 3, CV_AA, 0);
+	
     return result;
 }
 
@@ -628,7 +659,7 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     
 //     cv::Mat top_points = calculateTopPoints(subtract_dst);
     cv::Mat top_points = calculateFirstLeftPoints(subtract_dst);
-
+    calculateFirstRightPoints(subtract_dst);
     
 //     showFirstFromLeftPoints(cv_ptr->image, subtract_dst, msg->header.frame_id);
     
