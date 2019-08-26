@@ -126,7 +126,7 @@ cv::Mat Biotracking::calculateFirstLeftPoints(cv::Mat& black_white_image)
 {
 //     PointCloud cloud;
 //     cloud.header.frame_id = camera_frame_id;
-    std::vector<cv::Point>& nzPoints
+    std::vector<cv::Point> nzPoints;
     cv::Mat result = cv::Mat(black_white_image.rows, black_white_image.cols, CV_8UC1, cv::Scalar(0));
     int prev_r = -1;
     int prev_c = -1;
@@ -158,10 +158,23 @@ cv::Mat Biotracking::calculateFirstLeftPoints(cv::Mat& black_white_image)
             }
         }
     }
+	
+    cv::Vec4f line;
+    cv::fitLine(nzPoints, line, cv::DIST_L1, 1, 0.001, 0.001);
+    float d = std::sqrt((double) line[0] * line[0] + (double) line[1] * line[1]);
+    line[0] /= d;
+    line[1] /= d;
+    float t = (float) (result.cols + result.rows);
+    cv::Point pt1, pt2;
+    pt1.x = cvRound(line[2] - line[0] * t);
+    pt1.y = cvRound(line[3] - line[1] * t);
+    pt2.x = cvRound(line[2] + line[0] * t);
+    pt2.y = cvRound(line[3] + line[1] * t);
+    cv::line(result, pt1, pt2, cv::Scalar(255, 255, 255), 3, CV_AA, 0);
+
     
-    
-    SLine line = LineFitRANSAC(1., 0.5, 0.2,
-        nzPoints.size() * 0.5, nzPoints);
+    //SLine line = LineFitRANSAC(1., 0.5, 0.2,
+      //  nzPoints.size() * 0.5, nzPoints);
     
 //     pcl::SampleConsensusModelLine<Point>::Ptr model_line(new pcl::SampleConsensusModelLine<Point> (cloud.makeShared()));
 //     pcl::RandomSampleConsensus<Point> ransac(model_line);
