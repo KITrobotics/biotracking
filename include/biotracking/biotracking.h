@@ -111,6 +111,8 @@ private:
   bool shouldOutput;
   bool usePCL;
   
+  int shoulder_window_size;
+  
   std::string topic_point_cloud;
   std::string rgb_image_topic;
   std::string depth_image_topic;
@@ -146,6 +148,11 @@ private:
   float left_line_qx;
   float left_line_qy;
     
+  int shoulder_left_r;
+  int shoulder_left_c;
+  int shoulder_right_r;
+  int shoulder_right_c;
+  
   
   std::string camera_frame_id;
   std::string person_hips_frame_id;
@@ -165,7 +172,7 @@ private:
   bool calculateAvgImage(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response);
   visualization_msgs::Marker getRectangleMarker(double x, double y, double z);
   int showHorizontalPlane(cv::Mat& depth_image, cv::Mat& black_white_image);
-  int calculateHipsHeight(cv::Mat& depth_image, int horizontal_plane_y_int, cv::Mat& black_white_image);
+  int calculateHipsHeight(cv::Mat& depth_image, cv::Mat& black_white_image);
   int showFirstFromLeftPoints(cv::Mat& depth_image, cv::Mat& black_white_image, std::string frame_id);
   void calculateHipsLeftRightX(cv::Mat& black_white_image);
   void drawHipsCirles(cv::Mat& image);
@@ -178,8 +185,9 @@ private:
   cv::Mat calculateTopPoints(cv::Mat& black_white_image);
   void drawFirstLineWithEnoughPoints(cv::Mat black_white_image);
   cv::Mat calculateFirstLeftPoints(cv::Mat& black_white_image);
-  cv::Mat calculateFirstRightPoints(cv::Mat& black_white_image);
+  void calculateFirstRightPoints(cv::Mat& black_white_image, cv::Mat& result);
   void drawLeftLine(cv::Mat& image);
+  void drawShoulderCircles(cv::Mat& image);
   
   void cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg);
   ros::Subscriber sub_camera_info_;
@@ -226,5 +234,24 @@ public:
   ~Biotracking() {}
   
 };
+
+static std::array<double, 3> cross(const std::array<double, 3> &a, 
+	const std::array<double, 3> &b)
+{
+	std::array<double, 3> result;
+	result[0] = a[1] * b[2] - a[2] * b[1];
+	result[1] = a[2] * b[0] - a[0] * b[2];
+	result[2] = a[0] * b[1] - a[1] * b[0];
+	return result;
+}
+
+static double point_to_line_distance(const cv::Point &p, const cv::Vec4f &line)
+{
+	std::array<double, 3> pa{ { line[0], line[1], 1 } };
+	std::array<double, 3> pb{ { line[2], line[3], 1 } };
+	std::array<double, 3> l = cross(pa, pb);
+	return std::abs((p.x * l[0] + p.y * l[1] + l[2])) * 1.0 /
+		std::sqrt(double(l[0] * l[0] + l[1] * l[1]));
+}
 
 #endif

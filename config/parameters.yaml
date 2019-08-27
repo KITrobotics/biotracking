@@ -20,3 +20,4 @@ person_neck: 0.4
 useCentroid: true
 camera_info_topic: /camera/depth/camera_info
 camera_angle_radians: 0.26
+shoulder_window_size: 10
