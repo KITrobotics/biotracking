@@ -122,6 +122,7 @@ private:
   geometry_msgs::Point hips_left_pt;
   geometry_msgs::Point hips_right_pt;
   
+  bool has_avg_image;
   
   int shoulder_window_size;
   
@@ -168,6 +169,8 @@ private:
   
   std::string camera_frame_id;
   std::string person_hips_frame_id;
+  
+  std::string avg_image_path;
   
   int left_r, left_c, right_r, right_c;
   

@@ -7,7 +7,7 @@
 
 const int C = 640, R = 480; // x = c, y = r
 int out = 1;
-const int ToCalcAvg = 10;
+// const int ToCalcAvg = 10;
 const int bad_point = 9.9;
 const int white = 255;
 
@@ -44,6 +44,11 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
     
     nh_.param("camera_angle_radians", camera_angle_radians, 0.26);
     
+    std::string avg_image_path_param;
+    nh_.param("avg_image_path", avg_image_path_param, std::string("background_image/avg_image.png"));
+    std::string biotracking_path = ros::package::getPath("biotracking");
+    avg_image_path = biotracking_path + "/" + avg_image_path_param;
+    
     hips_plane_pub_ = nh_.advertise<visualization_msgs::Marker>("/biotracking/hips_plane_pub_", 10);
     neck_plane_pub_ = nh_.advertise<visualization_msgs::Marker>("/biotracking/neck_plane_pub_", 10);
     
@@ -72,15 +77,15 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
         horizontal_pub_ = it_.advertise("/biotracking/horizontal_lines", 1);
         
         
-        biofeedback_pub = nh_.advertise<biotracking::BioFeedbackMsg>("biotracking/biofeedback", 10);
+        biofeedback_pub = nh_.advertise<biotracking::BioFeedbackMsg>("/biotracking/biofeedback", 10);
         
         sub_camera_info_ = nh_.subscribe<sensor_msgs::CameraInfo>(camera_info_topic, 1, &Biotracking::cameraInfoCb, this);
-        hasCameraInfo = false;
+        hasCameraInfo = has_avg_image = false;
         
         kalman_left_shoulder = new KalmanFilter();
         kalman_right_shoulder = new KalmanFilter();
         
-        remainedImagesToCalcAvg = ToCalcAvg;
+        remainedImagesToCalcAvg = background_threshold;
         
         avg_image.create(R,C,CV_32FC1);
         
@@ -298,56 +303,70 @@ void Biotracking::setUpVariables()
 
 void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
 {
-	if (!isCalculateAvgSrvCalled) { return; }
-	
-	setUpVariables();
-	
     cv_bridge::CvImagePtr cv_ptr;
     try
     {
-      cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_32FC1);
+        cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_32FC1);
     }
     catch (cv_bridge::Exception& e)
     {
-      ROS_ERROR("cv_bridge exception: %s", e.what());
-      return;
+        ROS_ERROR("cv_bridge exception: %s", e.what());
+    return;
     }
-    	
-    if (remainedImagesToCalcAvg > 0) 
-	{ 
-		avg_image = (1 / ToCalcAvg) * cv_ptr->image;
-        remainedImagesToCalcAvg--;
-	}
-	
-	if (remainedImagesToCalcAvg == 0)
-	{ 
-        std::string path = ros::package::getPath("biotracking");
-        path += "/background_image/avg_image.png";
-// 		std::string file = "/home/student1/avg_image.jpg";
-//         cv::imwrite(path, avg_image);
-		remainedImagesToCalcAvg--;
-        
-        for(int r = 0; r < avg_image.rows; r++) {
-            float* avg_image_raw_ptr = avg_image.ptr<float>(r);
-            float* cv_ptr_image_ptr = cv_ptr->image.ptr<float>(r);
-        
-            for(int c = 0; c < avg_image.cols; c++) {
-                // if NaN
-                if (avg_image_raw_ptr[c] != avg_image_raw_ptr[c]) { 
-                    avg_image_raw_ptr[c] = bad_point;
-                }
-                if (cv_ptr_image_ptr[c] != cv_ptr_image_ptr[c]) {
-                    cv_ptr_image_ptr[c] = bad_point;
+    
+    if (!has_avg_image) {
+        cv::Mat read_image = cv::imread(avg_image_path, CV_32FC1);
+        if (!read_image.empty()) {
+            for(int r = 0; r < read_image.rows; r++) {
+                float* avg_image_raw_ptr = avg_image.ptr<float>(r);
+                float* read_image_ptr = read_image.ptr<float>(r);
+            
+                for(int c = 0; c < read_image.cols; c++) {
+                    avg_image_raw_ptr[c] = read_image_ptr[c];
                 }
             }
+            has_avg_image = true;
+        } else {
+            if (!isCalculateAvgSrvCalled) { return; }
+            
+            if (remainedImagesToCalcAvg > 0) 
+            { 
+                avg_image += (1 / background_threshold) * cv_ptr->image;
+                remainedImagesToCalcAvg--;
+                return;
+            }
+            
+            if (remainedImagesToCalcAvg == 0)
+            { 
+        // 		std::string file = "/home/student1/avg_image.jpg";
+        //         cv::imwrite(path, avg_image);
+                remainedImagesToCalcAvg--;
+                
+                for(int r = 0; r < avg_image.rows; r++) {
+                    float* avg_image_raw_ptr = avg_image.ptr<float>(r);
+                    float* cv_ptr_image_ptr = cv_ptr->image.ptr<float>(r);
+                
+                    for(int c = 0; c < avg_image.cols; c++) {
+                        // if NaN
+                        if (avg_image_raw_ptr[c] != avg_image_raw_ptr[c]) { 
+                            avg_image_raw_ptr[c] = bad_point;
+                        }
+                        if (cv_ptr_image_ptr[c] != cv_ptr_image_ptr[c]) {
+                            cv_ptr_image_ptr[c] = bad_point;
+                        }
+                    }
+                }
+                
+                cv::imwrite(avg_image_path, avg_image);
+                has_avg_image = true;
+                ROS_INFO("Average image is calculated!");
+            }
         }
-        
-        cv::imwrite(path, avg_image);
-        
-        ROS_INFO("Average image is calculated!");
-	}
+    }
 
-	if (remainedImagesToCalcAvg > 0) { return; }
+	if (!has_avg_image) { return; }
+    
+    setUpVariables();
 	
     cv::Mat avg_image_8u;
 //     avg_image.convertTo(avg_image_8u, CV_8UC1, 255, 0);
@@ -1084,7 +1103,7 @@ void Biotracking::clearVectors()
 
 void Biotracking::rgbImageCb(const sensor_msgs::ImageConstPtr& msg)
 {
-    if (!isCalculateAvgSrvCalled) { return; }
+    if (!has_avg_image) { return; }
     
     cv_bridge::CvImagePtr cv_ptr;
     try
