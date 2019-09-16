@@ -23,6 +23,7 @@ find_package(catkin REQUIRED COMPONENTS
   cv_bridge
   image_transport
   image_geometry
+  iirob_filters
 )
 
 # find_package(Eigen3 REQUIRED)

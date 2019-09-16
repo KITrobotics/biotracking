@@ -65,7 +65,9 @@
 #include <pcl/sample_consensus/ransac.h>
 #include <pcl/sample_consensus/sac_model_line.h>
 
+#include <iirob_filters/kalman_filter.h>
 
+typedef iirob_filters::MultiChannelKalmanFilter<double> KalmanFilter;
 static const std::string OPENCV_WINDOW = "Image window";
 
 typedef pcl::PointXYZRGB Point;
@@ -90,6 +92,8 @@ private:
   tf2_ros::TransformListener tfListener;
   ros::NodeHandle nh_;
   
+  KalmanFilter* kalman_left_shoulder;
+  KalmanFilter* kalman_right_shoulder;
   
   bool isAvgCalculated;
   bool isCalculateAvgSrvCalled;
@@ -184,10 +188,12 @@ private:
   void setUpVariables();
   cv::Mat calculateTopPoints(cv::Mat& black_white_image);
   void drawFirstLineWithEnoughPoints(cv::Mat black_white_image);
-  cv::Mat calculateFirstLeftPoints(cv::Mat& black_white_image);
-  void calculateFirstRightPoints(cv::Mat& black_white_image, cv::Mat& result);
   void drawLeftLine(cv::Mat& image);
   void drawShoulderCircles(cv::Mat& image);
+  
+  void calculateShoulderPoints(cv::Mat& black_white_image, cv::Mat& result, int& shoulder_x, int& shoulder_y, bool isRightShoulder);
+  void updateKalman(float x, float y, int& shoulder_x, int& shoulder_y);
+  void drawFitLine(std::vector<cv::Point>& nzPoints, cv::Mat& black_white_image);
   
   void cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg);
   ros::Subscriber sub_camera_info_;

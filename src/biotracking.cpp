@@ -74,6 +74,8 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
         sub_camera_info_ = nh_.subscribe<sensor_msgs::CameraInfo>(camera_info_topic, 1, &Biotracking::cameraInfoCb, this);
         hasCameraInfo = false;
         
+        kalman_left_shoulder = new KalmanFilter();
+        kalman_right_shoulder = new KalmanFilter();
         
         remainedImagesToCalcAvg = ToCalcAvg;
         
@@ -125,22 +127,33 @@ void Biotracking::drawFirstLineWithEnoughPoints(cv::Mat black_white_image)
     }
 }
 
-cv::Mat Biotracking::calculateFirstLeftPoints(cv::Mat& black_white_image)
+void Biotracking::calculateShoulderPoints(cv::Mat& black_white_image, cv::Mat& result, int& shoulder_x, int& shoulder_y, bool isRightShoulder)
 {
-//     shoulder_left_r = -1;
+    if (result.empty()) {
+        result = cv::Mat(black_white_image.rows, black_white_image.cols, CV_8UC1, cv::Scalar(0));
+    }
+    shoulder_y = -1;
     std::vector<cv::Point> nzPoints;
-    cv::Mat result = cv::Mat(black_white_image.rows, black_white_image.cols, CV_8UC1, cv::Scalar(0));
+    
     int prev_c = -1;
     int prev_r = -1;
+    bool found_arm = false;
+    int remaining_points = shoulder_window_size;
     for(int r = black_white_image.rows - 1; r > 0; r--) {
+        if (found_arm && remaining_points == 0) { break; }
+        if (found_arm && remaining_points > 0) { remaining_points--; }
         int nearest_c = black_white_image.rows;
         int c_diff = shoulder_window_size + 1;
         int lower_bound = std::max(0, prev_c - shoulder_window_size);
-        int upper_bound = std::min(prev_c + shoulder_window_size, black_white_image.cols);
+        int upper_bound = std::min(prev_c + shoulder_window_size, black_white_image.cols - 1);
         if (prev_c == -1) {
-            upper_bound = black_white_image.cols;
+            upper_bound = black_white_image.cols - 1;
         }
-        for(int c = lower_bound; c < upper_bound; c++) {
+        for(int col = lower_bound; col < upper_bound; col++) {
+            int c = col;
+            if (isRightShoulder) {
+                c = std::min(lower_bound + (upper_bound - col), black_white_image.cols - 1);
+            }
             uchar black_white = black_white_image.ptr<uchar>(r)[c];
             if (black_white > 0) 
             {
@@ -159,39 +172,61 @@ cv::Mat Biotracking::calculateFirstLeftPoints(cv::Mat& black_white_image)
             nzPoints.push_back(cv::Point(nearest_c,r));
             result.ptr<uchar>(r)[nearest_c] = white;
             prev_c = nearest_c;
-//             if (prev_r != -1 && std::abs(prev_r - r) > 20 && shoulder_left_r == -1) {
-//                 shoulder_left_r = r;
-//                 shoulder_left_c = prev_c;
-//             }
+            if (prev_r != -1 && std::abs(prev_r - r) > 18 && !found_arm) {
+                found_arm = true;
+            }
             prev_r = r;
         }
     }
     
-//     Point avg_pt;
-//     for (int i = nzPoints.size() - 1; i > std::max((int) nzPoints.size() - 30, 0); i--)
-//     {
-//         avg_pt.x += nzPoints[i].x / 30.;
-//         avg_pt.y += nzPoints[i].y / 30.;
-//     }
-//     
-//     shoulder_right_r = static_cast<int>(avg_pt.y);
-//     shoulder_right_c = static_cast<int>(avg_pt.x);
+    shoulder_x = prev_c;
+    shoulder_y = prev_r;
+//     updateKalman(prev_c, prev_r, shoulder_x, shoulder_y);
+    drawFitLine(nzPoints, black_white_image);
+}
+
+
+void Biotracking::updateKalman(float x, float y, int& shoulder_x, int& shoulder_y)
+{
+    if (x == -1 && y == -1) { return; }
     
-    shoulder_left_r = prev_r;
-    shoulder_left_c = prev_c;
+    std::vector<double> in, out;
+    in.push_back(x); in.push_back(y);
     
-    
-	
-	if (nzPoints.size() < 2) {
-        return result;
+    if (kalman_left_shoulder->isInitializated()) {
+        kalman_left_shoulder->update(in, out);
+        shoulder_x = out[0];
+        shoulder_y = out[1];
+    } else {
+        for (int i = 0; i < 4; i++) { in.push_back(0.0); }
+        kalman_left_shoulder->configure(in);
     }
-	
+}
+
+void Biotracking::drawNeckLine(cv::Mat& black_white_image)
+{
+    for (int r = 0; r < black_white_image.rows; r++)
+        for(int c = 0; c < black_white_image.cols; c++) {
+            uchar black_white = black_white_image.ptr<uchar>(r)[c];
+            if (black_white > 0) 
+            {
+                result.ptr<uchar>(r)[c] = black_white;
+                break;
+            }
+        }
+    }
+}
+
+void Biotracking::drawFitLine(std::vector<cv::Point>& nzPoints, cv::Mat& black_white_image)
+{
+    if (nzPoints.size() < 2) { return; }
+    
     cv::Vec4f line;
     cv::fitLine(nzPoints, line, cv::DIST_L1, 1, 0.001, 0.001);
     float d = std::sqrt((double) line[0] * line[0] + (double) line[1] * line[1]);
     line[0] /= d;
     line[1] /= d;
-    float t = (float) (result.cols + result.rows);
+    float t = (float) (black_white_image.cols + black_white_image.rows);
     cv::Point pt1, pt2;
     pt1.x = cvRound(line[2] - line[0] * t);
     pt1.y = cvRound(line[3] - line[1] * t);
@@ -203,136 +238,8 @@ cv::Mat Biotracking::calculateFirstLeftPoints(cv::Mat& black_white_image)
     double dist = point_to_line_distance(p, line);
     cv::putText(black_white_image, "(" + std::to_string(dist) + ")", cv::Point(300,20), 
             cv::FONT_HERSHEY_COMPLEX_SMALL, 0.6, cv::Scalar(255,255,255), 1, CV_AA);
-    
-    //SLine line = LineFitRANSAC(1., 0.5, 0.2,
-      //  nzPoints.size() * 0.5, nzPoints);
-    
-//     pcl::SampleConsensusModelLine<Point>::Ptr model_line(new pcl::SampleConsensusModelLine<Point> (cloud.makeShared()));
-//     pcl::RandomSampleConsensus<Point> ransac(model_line);
-//     ransac.setDistanceThreshold (1.);
-//     ransac.computeModel();
-//     std::vector<int> inliers;
-//     ransac.getInliers(inliers);
-//     left_line_px = static_cast<int>(cloud.points[inliers[0]].x);
-//     left_line_py = static_cast<int>(cloud.points[inliers[0]].y);
-//     left_line_qx = static_cast<int>(cloud.points[inliers[inliers.size() - 1]].x);
-//     left_line_qy = static_cast<int>(cloud.points[inliers[inliers.size() - 1]].y);
-    
-    return result;
 }
 
-
-
-
-void Biotracking::calculateFirstRightPoints(cv::Mat& black_white_image, cv::Mat& result)
-{
-    shoulder_right_r = -1;
-    std::vector<cv::Point> nzPoints;
-    if (result.empty()) {
-        result = cv::Mat(black_white_image.rows, black_white_image.cols, CV_8UC1, cv::Scalar(0));
-    }
-    int prev_c = -1;
-    int prev_r = -1;
-    for(int r = black_white_image.rows - 1; r > 0; r--) {
-        int nearest_c = black_white_image.rows;
-        int c_diff = shoulder_window_size + 1;
-        int lower_bound = std::max(0, prev_c - shoulder_window_size);
-        int upper_bound = std::min(prev_c + shoulder_window_size, black_white_image.cols - 1);
-        if (prev_c == -1) {
-            upper_bound = black_white_image.cols - 1;
-        }
-        for(int c = upper_bound; c > lower_bound; c--) {
-            uchar black_white = black_white_image.ptr<uchar>(r)[c];
-            if (black_white > 0) 
-            {
-                if (prev_c != -1) {
-                    if (std::abs(c - prev_c) < c_diff) {
-                        c_diff = std::abs(c - prev_c);
-                        nearest_c = c;
-                    }
-                } else {
-                    nearest_c = c;
-                    break;
-                }
-            }
-        }
-        if (nearest_c != black_white_image.rows) {
-            nzPoints.push_back(cv::Point(nearest_c,r));
-            result.ptr<uchar>(r)[nearest_c] = white;
-            prev_c = nearest_c;
-//             if (prev_r != -1 && std::abs(prev_r - r) > 20 && shoulder_right_r == -1) {
-//                 shoulder_right_r = r;
-//                 shoulder_right_c = prev_c;
-//             }
-            prev_r = r;
-        }
-    }
-    
-//     Point avg_pt;
-//     for (int i = nzPoints.size() - 1; i > std::max((int) nzPoints.size() - 30, 0); i--)
-//     {
-//         avg_pt.x += nzPoints[i].x / 30.;
-//         avg_pt.y += nzPoints[i].y / 30.;
-//     }
-//     
-//     shoulder_right_r = static_cast<int>(avg_pt.y);
-//     shoulder_right_c = static_cast<int>(avg_pt.x);
-    
-    shoulder_right_r = prev_r;
-    shoulder_right_c = prev_c;
-    
-    /*
-    
-    std::vector<cv::Point> nzPoints;
-    cv::Mat result = cv::Mat(black_white_image.rows, black_white_image.cols, CV_8UC1, cv::Scalar(0));
-    int prev_r = -1;
-    int prev_c = -1;
-    for(int r = black_white_image.rows - 1; r > 0; r--) {
-        for(int c = black_white_image.cols - 1; c > 0; c--) {
-            uchar black_white = black_white_image.ptr<uchar>(r)[c];
-            if (black_white > 0) 
-            {
-                if (prev_r != -1 && prev_c != -1) {
-                    int px_diff = std::abs(prev_r - r) + std::abs(prev_c - c);
-                    if (px_diff < 30) {
-                        result.ptr<uchar>(r)[c] = black_white;
-                        prev_r = r;
-                        prev_c = c;
-                        nzPoints.push_back(cv::Point(c,r));
-                    }
-                    break;
-                } else {
-                    prev_r = r;
-                    prev_c = c;
-                    result.ptr<uchar>(r)[c] = black_white;
-                    nzPoints.push_back(cv::Point(c,r));
-                    break;
-                }
-            }
-        }
-    }*/
-	if (nzPoints.size() < 2) {
-        return;
-    }
-    cv::Vec4f line;
-    cv::fitLine(nzPoints, line, cv::DIST_L1, 1, 0.001, 0.001);
-    float d = std::sqrt((double) line[0] * line[0] + (double) line[1] * line[1]);
-    line[0] /= d;
-    line[1] /= d;
-    float t = (float) (result.cols + result.rows);
-    cv::Point pt1, pt2;
-    pt1.x = cvRound(line[2] - line[0] * t);
-    pt1.y = cvRound(line[3] - line[1] * t);
-    pt2.x = cvRound(line[2] + line[0] * t);
-    pt2.y = cvRound(line[3] + line[1] * t);
-    cv::line(black_white_image, pt1, pt2, cv::Scalar(255, 255, 255), 3, CV_AA, 0);
-	
-    
-    cv::Point p(hips_right_x, hips_height);
-    double dist = point_to_line_distance(p, line);
-    cv::putText(black_white_image, "(" + std::to_string(dist) + ")", cv::Point(100,20), 
-            cv::FONT_HERSHEY_COMPLEX_SMALL, 0.6, cv::Scalar(255,255,255), 1, CV_AA);
-}
 
 cv::Mat Biotracking::calculateTopPoints(cv::Mat& black_white_image)
 {
@@ -635,10 +542,12 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     
 //     cv::Mat horizontal = calculateHorizontalLines(subtract_dst);
     
-    calculateTopPoints(subtract_dst);
-    cv::Mat top_points = calculateFirstLeftPoints(subtract_dst);
-    calculateFirstRightPoints(subtract_dst, top_points);
+//     calculateTopPoints(subtract_dst);
+    cv::Mat shoulder_points;
+    calculateShoulderPoints(subtract_dst, shoulder_points, shoulder_left_c, shoulder_left_r, false);
+    calculateShoulderPoints(subtract_dst, shoulder_points, shoulder_right_c, shoulder_right_r, true);
     
+    drawNeckLine(subtract_dst);
     
 //     showFirstFromLeftPoints(cv_ptr->image, subtract_dst, msg->header.frame_id);
     
@@ -670,7 +579,7 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
 	subtract_image_pub_.publish(msg_to_pub);
 	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", erosion_dst).toImageMsg();
 	erosion_image_pub_.publish(msg_to_pub);
-	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", top_points).toImageMsg();
+	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", shoulder_points).toImageMsg();
 	horizontal_pub_.publish(msg_to_pub);
 // 	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "32FC1", fgMaskMOG2).toImageMsg();
 // 	mog2_pub_.publish(msg_to_pub);

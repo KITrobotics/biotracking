@@ -27,4 +27,5 @@
     <depend>cv_bridge</depend>
     <depend>image_transport</depend>
     <depend>image_geometry</depend>
+    <depend>iirob_filters</depend>
 </package>

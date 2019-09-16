@@ -13,11 +13,12 @@ usePCL: false
 #person_hips: -0.1
 #person_neck: 0.4
 person_hips: 0.2
-hips_height_world: 0.8
-camera_height_world: 0.75
+hips_height_world: 0.73
+camera_height_world: 0.9
 person_hips_frame_id: base_link
 person_neck: 0.4
 useCentroid: true
 camera_info_topic: /camera/depth/camera_info
-camera_angle_radians: 0.26
+#camera_angle_radians: 0.26
+camera_angle_radians: 0.02
 shoulder_window_size: 10
