@@ -71,6 +71,9 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
         erosion_image_pub_ = it_.advertise("/biotracking/erosion_image", 1);
         horizontal_pub_ = it_.advertise("/biotracking/horizontal_lines", 1);
         
+        
+        biofeedback_pub = nh_.advertise<biotracking::BioFeedbackMsg>("biotracking/biofeedback", 10);
+        
         sub_camera_info_ = nh_.subscribe<sensor_msgs::CameraInfo>(camera_info_topic, 1, &Biotracking::cameraInfoCb, this);
         hasCameraInfo = false;
         
@@ -203,19 +206,19 @@ void Biotracking::updateKalman(float x, float y, int& shoulder_x, int& shoulder_
     }
 }
 
-void Biotracking::drawNeckLine(cv::Mat& black_white_image)
-{
-    for (int r = 0; r < black_white_image.rows; r++)
-        for(int c = 0; c < black_white_image.cols; c++) {
-            uchar black_white = black_white_image.ptr<uchar>(r)[c];
-            if (black_white > 0) 
-            {
-                result.ptr<uchar>(r)[c] = black_white;
-                break;
-            }
-        }
-    }
-}
+// void Biotracking::drawNeckLine(cv::Mat& black_white_image)
+// {
+//     for (int r = 0; r < black_white_image.rows; r++)
+//         for(int c = 0; c < black_white_image.cols; c++) {
+//             uchar black_white = black_white_image.ptr<uchar>(r)[c];
+//             if (black_white > 0) 
+//             {
+//                 result.ptr<uchar>(r)[c] = black_white;
+//                 break;
+//             }
+//         }
+//     }
+// }
 
 void Biotracking::drawFitLine(std::vector<cv::Point>& nzPoints, cv::Mat& black_white_image)
 {
@@ -318,8 +321,10 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
 	
 	if (remainedImagesToCalcAvg == 0)
 	{ 
-		std::string file = "/home/student1/avg_image.jpg";
-        cv::imwrite(file, avg_image);
+        std::string path = ros::package::getPath("biotracking");
+        path += "/background_image/avg_image.png";
+// 		std::string file = "/home/student1/avg_image.jpg";
+//         cv::imwrite(path, avg_image);
 		remainedImagesToCalcAvg--;
         
         for(int r = 0; r < avg_image.rows; r++) {
@@ -337,6 +342,7 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
             }
         }
         
+        cv::imwrite(path, avg_image);
         
         ROS_INFO("Average image is calculated!");
 	}
@@ -533,7 +539,7 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
 //     if (horizontal_plane_y_int != -1) 
 //     {
     hips_height = calculateHipsHeight(cv_ptr->image, subtract_dst);
-    calculateHipsLeftRightX(subtract_dst);
+    calculateHipsLeftRightX(cv_ptr->image, subtract_dst);
 //     }
     
     
@@ -547,7 +553,35 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     calculateShoulderPoints(subtract_dst, shoulder_points, shoulder_left_c, shoulder_left_r, false);
     calculateShoulderPoints(subtract_dst, shoulder_points, shoulder_right_c, shoulder_right_r, true);
     
-    drawNeckLine(subtract_dst);
+//     drawNeckLine(subtract_dst);
+    
+    
+    biotracking::BioFeedbackMsg biofeedback_msg;
+    biofeedback_msg.header = msg->header;
+    bool should_pub_biofeedback = false;
+    
+    if (hips_left_x != -1 && hips_right_x != -1) {
+        biofeedback_msg.hips_left_pt = hips_left_pt;
+        biofeedback_msg.hips_right_pt = hips_right_pt;
+        should_pub_biofeedback = true;
+    }
+	
+	if (hips_height != -1 && shoulder_left_c != -1 && shoulder_right_c != -1 && shoulder_left_r != -1 && shoulder_right_r != -1) {
+        shoulder_left_pt.z = cv_ptr->image.ptr<float>(shoulder_left_r)[shoulder_left_c];
+        shoulder_left_pt.x = (shoulder_left_c - center_x) * shoulder_left_pt.z * constant_x;
+        shoulder_left_pt.y = (shoulder_left_r - center_y) * shoulder_left_pt.z * constant_y;
+        biofeedback_msg.shoulder_left_pt = shoulder_left_pt;
+        
+        shoulder_right_pt.z = cv_ptr->image.ptr<float>(shoulder_right_r)[shoulder_right_c];
+        shoulder_right_pt.x = (shoulder_right_c - center_x) * shoulder_right_pt.z * constant_x;
+        shoulder_right_pt.y = (shoulder_right_r - center_y) * shoulder_right_pt.z * constant_y;
+        biofeedback_msg.shoulder_right_pt = shoulder_right_pt;
+    }
+    
+    if (should_pub_biofeedback) {
+        biofeedback_pub.publish(biofeedback_msg);
+    }
+    
     
 //     showFirstFromLeftPoints(cv_ptr->image, subtract_dst, msg->header.frame_id);
     
@@ -589,7 +623,7 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
 //     std::cin >> waitInt;
 }
 
-void Biotracking::calculateHipsLeftRightX(cv::Mat& black_white_image)
+void Biotracking::calculateHipsLeftRightX(cv::Mat& depth_image, cv::Mat& black_white_image)
 {   
     bool found_white = false;
     for (int n = 1; n < black_white_image.cols; n++)
@@ -620,6 +654,16 @@ void Biotracking::calculateHipsLeftRightX(cv::Mat& black_white_image)
 	{
 		hips_left_x = hips_right_x = -1;
 	}
+	
+	if (hips_left_x != -1 && hips_right_x != -1) {
+        hips_left_pt.z = depth_image.ptr<float>(hips_height)[hips_left_x];
+        hips_left_pt.x = (hips_left_x - center_x) * hips_left_pt.z * constant_x;
+        hips_left_pt.y = (hips_height - center_y) * hips_left_pt.z * constant_y;
+        
+        hips_right_pt.z = depth_image.ptr<float>(hips_height)[hips_right_x];
+        hips_right_pt.x = (hips_right_x - center_x) * hips_right_pt.z * constant_x;
+        hips_right_pt.y = (hips_height - center_y) * hips_right_pt.z * constant_y;
+    }
 }
 
 int Biotracking::calculateHipsHeight(cv::Mat& depth_image, cv::Mat& black_white_image)

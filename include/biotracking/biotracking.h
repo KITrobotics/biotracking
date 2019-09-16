@@ -61,11 +61,13 @@
 #include <image_geometry/pinhole_camera_model.h>
 #include <depth_image_proc/depth_traits.h>
 
+#include <ros/package.h>
 
 #include <pcl/sample_consensus/ransac.h>
 #include <pcl/sample_consensus/sac_model_line.h>
 
 #include <iirob_filters/kalman_filter.h>
+#include <biotracking/BioFeedbackMsg.h>
 
 typedef iirob_filters::MultiChannelKalmanFilter<double> KalmanFilter;
 static const std::string OPENCV_WINDOW = "Image window";
@@ -114,6 +116,12 @@ private:
   
   bool shouldOutput;
   bool usePCL;
+  
+  geometry_msgs::Point shoulder_left_pt;
+  geometry_msgs::Point shoulder_right_pt;
+  geometry_msgs::Point hips_left_pt;
+  geometry_msgs::Point hips_right_pt;
+  
   
   int shoulder_window_size;
   
@@ -178,7 +186,7 @@ private:
   int showHorizontalPlane(cv::Mat& depth_image, cv::Mat& black_white_image);
   int calculateHipsHeight(cv::Mat& depth_image, cv::Mat& black_white_image);
   int showFirstFromLeftPoints(cv::Mat& depth_image, cv::Mat& black_white_image, std::string frame_id);
-  void calculateHipsLeftRightX(cv::Mat& black_white_image);
+  void calculateHipsLeftRightX(cv::Mat& depth_image, cv::Mat& black_white_image);
   void drawHipsCirles(cv::Mat& image);
   void calculateSlopeLines(cv::Mat& black_white_image, cv::Mat& depth_image);
   void drawShoulderLine(cv::Mat& image);
@@ -208,6 +216,7 @@ private:
   ros::Publisher hips_plane_pub_;
   ros::Publisher neck_plane_pub_;
   ros::Publisher calculated_point_cloud_publisher;
+  ros::Publisher biofeedback_pub;
 
   image_transport::ImageTransport it_;
   image_transport::Subscriber image_sub_;
