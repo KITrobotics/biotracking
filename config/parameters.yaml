@@ -6,7 +6,7 @@ depth_image_topic: /camera_body/depth_registered/image_raw
 #rgb_image_topic: /camera/rgb/image_raw
 rgb_image_topic: /camera_body/rgb/image_raw
 depth_image_pub: /biotracking/raw_image
-background_threshold: 2
+num_images_for_background: 2
 person_distance: 1.5
 bottom_factor: 1.
 shouldOutput: false

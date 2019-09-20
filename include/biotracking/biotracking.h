@@ -111,7 +111,7 @@ private:
   
   bool useCentroid;
   
-  int background_threshold;
+  int num_images_for_background;
   double person_distance;
   
   bool shouldOutput;
