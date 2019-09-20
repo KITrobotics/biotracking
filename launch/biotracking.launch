@@ -1,6 +1,7 @@
 <launch>
   <node pkg="biotracking" type="biotracking" name="biotracking" output="screen">
     <rosparam command="load" file="$(find biotracking)/config/parameters.yaml"/>
+    <rosparam command="load" file="$(find biotracking)/config/kalman_filter.yaml"/>
   </node>
 
 </launch>

@@ -23,6 +23,8 @@ find_package(catkin REQUIRED COMPONENTS
   cv_bridge
   image_transport
   image_geometry
+  iirob_filters
+  message_generation
 )
 
 # find_package(Eigen3 REQUIRED)
@@ -40,10 +42,20 @@ endif()
 
 find_package(Boost REQUIRED)
 
+add_message_files(DIRECTORY msg FILES
+  BioFeedbackMsg.msg
+)
+
+generate_messages(
+  DEPENDENCIES
+  std_msgs
+  geometry_msgs
+)
+
 catkin_package(
   INCLUDE_DIRS include
 #   LIBRARIES kalman
-  CATKIN_DEPENDS std_msgs
+  CATKIN_DEPENDS message_runtime std_msgs
   DEPENDS EIGEN3
 )
 
