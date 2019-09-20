@@ -32,7 +32,7 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
     
     nh_.param("lower_limit", lower_limit, 0.0);
     nh_.param("upper_limit", upper_limit, 1.0);
-
+    
     nh_.param("person_hips", person_hips, 0.15);
     nh_.param("person_neck", person_neck, 0.52);
     
@@ -49,7 +49,7 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
         
         pcl_cloud_publisher = nh_.advertise<PointCloud>("pcl_point_cloud", 10);
         pc2_subscriber = nh_.subscribe<sensor_msgs::PointCloud2>(topic_point_cloud, 1, 
-                &Biotracking::processPointCloud2, this);
+                                                                 &Biotracking::processPointCloud2, this);
     }
     else
     {
@@ -103,35 +103,35 @@ void Biotracking::cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg)
 
 void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
 {
-	if (!isCalculateAvgSrvCalled) { return; }
-	
+    if (!isCalculateAvgSrvCalled) { return; }
+    
     cv_bridge::CvImagePtr cv_ptr;
     try
     {
-      cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_32FC1);
+        cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_32FC1);
     }
     catch (cv_bridge::Exception& e)
     {
-      ROS_ERROR("cv_bridge exception: %s", e.what());
-      return;
+        ROS_ERROR("cv_bridge exception: %s", e.what());
+        return;
     }
-    	
+    
     if (remainedImagesToCalcAvg > 0) 
-	{ 
-		avg_image = (1 / ToCalcAvg) * cv_ptr->image;
+    { 
+        avg_image = (1 / ToCalcAvg) * cv_ptr->image;
         remainedImagesToCalcAvg--;
-	}
-	
-	if (remainedImagesToCalcAvg == 0)
-	{ 
-		std::string file = "/home/student1/avg_image.jpg";
+    }
+    
+    if (remainedImagesToCalcAvg == 0)
+    { 
+        std::string file = "/home/student1/avg_image.jpg";
         cv::imwrite(file, avg_image);
-		remainedImagesToCalcAvg--;
+        remainedImagesToCalcAvg--;
         
         for(int r = 0; r < avg_image.rows; r++) {
             float* avg_image_raw_ptr = avg_image.ptr<float>(r);
             float* cv_ptr_image_ptr = cv_ptr->image.ptr<float>(r);
-        
+            
             for(int c = 0; c < avg_image.cols; c++) {
                 // if NaN
                 if (avg_image_raw_ptr[c] != avg_image_raw_ptr[c]) { 
@@ -145,29 +145,29 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
         
         
         ROS_INFO("Average image is calculated!");
-	}
-
-	if (remainedImagesToCalcAvg > 0) { return; }
-	
+    }
+    
+    if (remainedImagesToCalcAvg > 0) { return; }
+    
     cv::Mat avg_image_8u;
-//     avg_image.convertTo(avg_image_8u, CV_8UC1, 255, 0);
+    //     avg_image.convertTo(avg_image_8u, CV_8UC1, 255, 0);
     avg_image.convertTo(avg_image_8u, CV_8UC1);
     
     cv::Mat raw_image_8u;
     cv_ptr->image.convertTo(raw_image_8u, CV_8UC1, 255, 0);
-	
-	/*
+    
+    /*
      * workingImg
      */
-// 	cv::Mat workingImg = cv_ptr->image - avg_image;
+    // 	cv::Mat workingImg = cv_ptr->image - avg_image;
     cv::Mat diffMat;
     cv::absdiff(avg_image,cv_ptr->image,diffMat);
-
+    
     cv::Mat workingImg;
     workingImg.create(R,C,CV_8UC1);
     std::string s = "", s2 = "";
     for(int r = 0; r < workingImg.rows; r++) {
-//         uchar* raw_image_ptr = raw_image_8u.ptr<uchar>(r);
+        //         uchar* raw_image_ptr = raw_image_8u.ptr<uchar>(r);
         uchar* avg_image_ptr = avg_image_8u.ptr<uchar>(r);
         uchar* workingImg_ptr = workingImg.ptr<uchar>(r);
         float* cv_ptr_image_ptr = cv_ptr->image.ptr<float>(r);
@@ -175,15 +175,15 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
         float* diffMat_ptr = diffMat.ptr<float>(r);
         
         for(int c = 0; c < workingImg.cols; c++) {
-//             if (std::abs(raw_image_ptr[c] - avg_image_ptr[c]) > background_threshold) {
-//                 workingImg_ptr[c] = 255;
-//             }
-//             else {
-//                 workingImg_ptr[c] = 0;
-//             }
-//             workingImg_ptr[c] = 255 * std::abs(avg_image_raw_ptr[c] - cv_ptr_image_ptr[c]);
+            //             if (std::abs(raw_image_ptr[c] - avg_image_ptr[c]) > background_threshold) {
+            //                 workingImg_ptr[c] = 255;
+            //             }
+            //             else {
+            //                 workingImg_ptr[c] = 0;
+            //             }
+            //             workingImg_ptr[c] = 255 * std::abs(avg_image_raw_ptr[c] - cv_ptr_image_ptr[c]);
             
-//             float diff = avg_image_raw_ptr[c] - cv_ptr_image_ptr[c];
+            //             float diff = avg_image_raw_ptr[c] - cv_ptr_image_ptr[c];
             
             if (diffMat_ptr[c] > 0.1 && cv_ptr_image_ptr[c] < person_distance && cv_ptr_image_ptr[c] > 0.06)
             {
@@ -191,10 +191,10 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
             } else {
                 workingImg_ptr[c] = 0;
             }
-                
+            
             if (out == 1) {
                 s += "[actual: " + std::to_string(cv_ptr_image_ptr[c]) + ", absdiff: " + std::to_string(diffMat_ptr[c]) + ", avg: " + std::to_string(avg_image_raw_ptr[c]) + ", pos: (" + std::to_string(r) + ", " + std::to_string(c) + ")]";
-//                 s2 += "[" + std::to_string(raw_image_ptr[c]) + ", " + std::to_string(avg_image_ptr[c]) + "(" + std::to_string(r) + ", " + std::to_string(c) + ")]";
+                //                 s2 += "[" + std::to_string(raw_image_ptr[c]) + ", " + std::to_string(avg_image_ptr[c]) + "(" + std::to_string(r) + ", " + std::to_string(c) + ")]";
                 
             }
         }
@@ -215,15 +215,15 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     }
     
     
-	cv::Mat erosion_dst;
+    cv::Mat erosion_dst;
     int erosion_size = 1;
-	cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT,
-            cv::Size(2 * erosion_size + 1, 2 * erosion_size + 1),
-            cv::Point(erosion_size, erosion_size) );
-
-	erode(workingImg, erosion_dst, element);
-	cv::Mat subtract_dst = workingImg - erosion_dst;
-	
+    cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT,
+                                                cv::Size(2 * erosion_size + 1, 2 * erosion_size + 1),
+                                                cv::Point(erosion_size, erosion_size) );
+    
+    erode(workingImg, erosion_dst, element);
+    cv::Mat subtract_dst = workingImg - erosion_dst;
+    
     int bottom_r = subtract_dst.rows - 10;
     bottom_right_r = bottom_left_r = bottom_r; 
     uchar* bottom_ptr = subtract_dst.ptr<uchar>(bottom_r);
@@ -246,24 +246,24 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     }
     
     
-	
+    
     for(int r = 5; r < subtract_dst.cols / 2; r++) {
         uchar* ptr = subtract_dst.ptr<uchar>(r);
         int left, right;
         left = right = -1;
         for(int c = 0; c < subtract_dst.rows; c++) {
             if (ptr[c] > 0) {
-                    left = c;
-                    break;
+                left = c;
+                break;
             }
         }
         for (int c = subtract_dst.rows - 1; c >= 0; c--) {
-                if (ptr[c] > 0) {
-                        right = c;
-                        break;
-                }
+            if (ptr[c] > 0) {
+                right = c;
+                break;
+            }
         }
-		
+        
         if (left == -1 || right == -1) { continue; }
         
         if (right - left > bottom_factor * (bottom_right_c - bottom_left_c)) {
@@ -308,28 +308,28 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     /**
      * Retrieving camera point of person hips height
      */
-//     geometry_msgs::TransformStamped transformStamped;
-//     geometry_msgs::PointStamped person_hips_height_world_point, person_hips_height_camera_point;
-//     person_hips_height_world_point.header.frame_id = camera_frame_id;
-//     person_hips_height_world_point.header.stamp = ros::Time::now();
-// 
-//     bool is_transformed = false;
-//     try{
-//         transformStamped = tfBuffer.lookupTransform(camera_frame_id, person_hips_frame_id, ros::Time(0));
-//         is_transformed = true;
-//     }
-//     catch (tf2::TransformException &ex) {
-//         ROS_WARN("Failure to lookup the transform for a point! %s\n", ex.what());
-//     }
-// 
-//     if (is_transformed) 
-//     {
-//         person_hips_height_world_point.point.x = 0.;
-//         person_hips_height_world_point.point.y = 0.;
-//         person_hips_height_world_point.point.z = person_hips;
-// 
-//         tf2::doTransform(person_hips_height_world_point, person_hips_height_camera_point, transformStamped);
-//     }
+    //     geometry_msgs::TransformStamped transformStamped;
+    //     geometry_msgs::PointStamped person_hips_height_world_point, person_hips_height_camera_point;
+    //     person_hips_height_world_point.header.frame_id = camera_frame_id;
+    //     person_hips_height_world_point.header.stamp = ros::Time::now();
+    // 
+    //     bool is_transformed = false;
+    //     try{
+    //         transformStamped = tfBuffer.lookupTransform(camera_frame_id, person_hips_frame_id, ros::Time(0));
+    //         is_transformed = true;
+    //     }
+    //     catch (tf2::TransformException &ex) {
+    //         ROS_WARN("Failure to lookup the transform for a point! %s\n", ex.what());
+    //     }
+    // 
+    //     if (is_transformed) 
+    //     {
+    //         person_hips_height_world_point.point.x = 0.;
+    //         person_hips_height_world_point.point.y = 0.;
+    //         person_hips_height_world_point.point.z = person_hips;
+    // 
+    //         tf2::doTransform(person_hips_height_world_point, person_hips_height_camera_point, transformStamped);
+    //     }
     /**
      * Retrieving camera point of person hips height
      */
@@ -343,7 +343,7 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     }
     
     
-//     showFirstFromLeftPoints(cv_ptr->image, subtract_dst, msg->header.frame_id);
+    //     showFirstFromLeftPoints(cv_ptr->image, subtract_dst, msg->header.frame_id);
     
     
     
@@ -360,25 +360,25 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     
     
     image_pub_.publish(cv_ptr->toImageMsg());
-	sensor_msgs::ImagePtr msg_to_pub;
+    sensor_msgs::ImagePtr msg_to_pub;
     
     msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", raw_image_8u).toImageMsg();
-	raw_image_8u_pub_.publish(msg_to_pub);
-//     msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", avg_image_8u).toImageMsg();
+    raw_image_8u_pub_.publish(msg_to_pub);
+    //     msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", avg_image_8u).toImageMsg();
     msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "32FC1", avg_image).toImageMsg();
-	avg_image_pub_.publish(msg_to_pub);
-	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", workingImg).toImageMsg();
-	working_image_pub_.publish(msg_to_pub);
-	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", subtract_dst).toImageMsg();
-	subtract_image_pub_.publish(msg_to_pub);
-	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", erosion_dst).toImageMsg();
-	erosion_image_pub_.publish(msg_to_pub);
-// 	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "32FC1", fgMaskMOG2).toImageMsg();
-// 	mog2_pub_.publish(msg_to_pub);
+    avg_image_pub_.publish(msg_to_pub);
+    msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", workingImg).toImageMsg();
+    working_image_pub_.publish(msg_to_pub);
+    msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", subtract_dst).toImageMsg();
+    subtract_image_pub_.publish(msg_to_pub);
+    msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", erosion_dst).toImageMsg();
+    erosion_image_pub_.publish(msg_to_pub);
+    // 	msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "32FC1", fgMaskMOG2).toImageMsg();
+    // 	mog2_pub_.publish(msg_to_pub);
     
     
-//     int waitInt;
-//     std::cin >> waitInt;
+    //     int waitInt;
+    //     std::cin >> waitInt;
 }
 
 void Biotracking::calculateHipsLeftRightX(cv::Mat& black_white_image)
@@ -432,7 +432,7 @@ int Biotracking::calculateHipsHeight(cv::Mat& depth_image, int horizontal_plane_
     for (int m = for_begin; m < for_boundary; m += for_increment)
     {
         float d = depth_image.ptr<float>(m)[center_x_int];
-            
+        
         if (d == 0 || d != d)
         {
             continue;
@@ -457,8 +457,8 @@ int Biotracking::calculateHipsHeight(cv::Mat& depth_image, int horizontal_plane_
     }
     
     cv::putText(black_white_image, "hips: (" + std::to_string(center_x_int) + ", " + 
-            std::to_string(hips_height_row) + ")", cv::Point(center_x_int,hips_height_row), 
-            cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,255,255), 1, CV_AA);
+    std::to_string(hips_height_row) + ")", cv::Point(center_x_int,hips_height_row), 
+                cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,255,255), 1, CV_AA);
     
     return hips_height_row;
 }
@@ -494,7 +494,7 @@ int Biotracking::showFirstFromLeftPoints(cv::Mat& depth_image, cv::Mat& black_wh
             
             if (!hasText && black_white > 0 && textEvery50 == 0) {
                 cv::putText(black_white_image, "(" + std::to_string(x) + ", " + std::to_string(y) + ", " + std::to_string(z) + ")", cv::Point(n,m), 
-                    cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,255,255), 1, CV_AA);
+                            cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,255,255), 1, CV_AA);
                 textEvery50 = 50;
             }
             
@@ -531,7 +531,7 @@ int Biotracking::showHorizontalPlane(cv::Mat& depth_image, cv::Mat& black_white_
     for (int m = center_y_int + 1; m < depth_image.rows; m++)
     {
         float d = depth_image.ptr<float>(m)[center_x_int];
-            
+        
         if (d == 0 || d != d)
         {
             continue;
@@ -554,12 +554,12 @@ int Biotracking::showHorizontalPlane(cv::Mat& depth_image, cv::Mat& black_white_
     }
     
     cv::putText(black_white_image, "zero plane: (" + std::to_string(center_x_int) + ", " + 
-            std::to_string(center_y_int) + ", " + std::to_string(zero_plane_d) + ")", cv::Point(center_x_int,center_y_int), 
-            cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,255,255), 1, CV_AA);
+    std::to_string(center_y_int) + ", " + std::to_string(zero_plane_d) + ")", cv::Point(center_x_int,center_y_int), 
+                cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,255,255), 1, CV_AA);
     
     cv::putText(black_white_image, "horizontal plane: (" + std::to_string(center_x_int) + ", " + 
-            std::to_string(horizontal_plane_y) + ", " + std::to_string(horizontal_plane_z) + ")", cv::Point(center_x_int,horizontal_plane_y), 
-            cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,255,255), 1, CV_AA);
+    std::to_string(horizontal_plane_y) + ", " + std::to_string(horizontal_plane_z) + ")", cv::Point(center_x_int,horizontal_plane_y), 
+                cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255,255,255), 1, CV_AA);
     
     return horizontal_plane_y;
 }
@@ -598,7 +598,7 @@ void Biotracking::processPointCloud2(const sensor_msgs::PointCloud2::ConstPtr& c
         x = centroid(2);
         y = -centroid(0);
     }
-
+    
     visualization_msgs::Marker marker = getRectangleMarker(x, y, person_hips);
     hips_plane_pub_.publish(marker);
     marker = getRectangleMarker(x, y, person_neck);
@@ -624,12 +624,12 @@ void Biotracking::rgbImageCb(const sensor_msgs::ImageConstPtr& msg)
     cv_bridge::CvImagePtr cv_ptr;
     try
     {
-      cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+        cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
     }
     catch (cv_bridge::Exception& e)
     {
-      ROS_ERROR("cv_bridge exception: %s", e.what());
-      return;
+        ROS_ERROR("cv_bridge exception: %s", e.what());
+        return;
     }
     
     if (hips_height != -1)
@@ -641,17 +641,17 @@ void Biotracking::rgbImageCb(const sensor_msgs::ImageConstPtr& msg)
         cv::line(cv_ptr->image, cv::Point(line_px, line_py), cv::Point(line_qx, line_qy), cv::Scalar(0,0,255));
     }
     
-//     if (left_c != -1 && left_r != -1) 
-//         cv::circle(cv_ptr->image, cv::Point(left_c, left_r), 10, CV_RGB(255,0,0), CV_FILLED, 10,0);
-//     
-//     if (right_c != -1 && right_r != -1) 
-//         cv::circle(cv_ptr->image, cv::Point(right_c, right_r), 10, CV_RGB(255,0,0), CV_FILLED, 10,0);
-//     
-//     if (bottom_left_c != -1 && bottom_left_r != -1) 
-//         cv::circle(cv_ptr->image, cv::Point(bottom_left_c, bottom_left_r), 10, CV_RGB(0,255,0), CV_FILLED, 10,0);
-//     
-//     if (bottom_right_c != -1 && bottom_right_r != -1) 
-//         cv::circle(cv_ptr->image, cv::Point(bottom_right_c, bottom_right_r), 10, CV_RGB(0,255,0), CV_FILLED, 10,0);
+    //     if (left_c != -1 && left_r != -1) 
+    //         cv::circle(cv_ptr->image, cv::Point(left_c, left_r), 10, CV_RGB(255,0,0), CV_FILLED, 10,0);
+    //     
+    //     if (right_c != -1 && right_r != -1) 
+    //         cv::circle(cv_ptr->image, cv::Point(right_c, right_r), 10, CV_RGB(255,0,0), CV_FILLED, 10,0);
+    //     
+    //     if (bottom_left_c != -1 && bottom_left_r != -1) 
+    //         cv::circle(cv_ptr->image, cv::Point(bottom_left_c, bottom_left_r), 10, CV_RGB(0,255,0), CV_FILLED, 10,0);
+    //     
+    //     if (bottom_right_c != -1 && bottom_right_r != -1) 
+    //         cv::circle(cv_ptr->image, cv::Point(bottom_right_c, bottom_right_r), 10, CV_RGB(0,255,0), CV_FILLED, 10,0);
     
     rgb_image_pub_.publish(cv_ptr->toImageMsg());
 }
