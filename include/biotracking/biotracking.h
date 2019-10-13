@@ -211,7 +211,11 @@ private:
   std::string camera_info_topic;
   image_geometry::PinholeCameraModel model_;
   bool hasCameraInfo;
+  int rows_rollator_offset;
   
+  double min_distance_near_camera;
+  std::string biotracking_path;
+  int out;
   
   ros::Subscriber pc2_subscriber;
   
@@ -270,6 +274,31 @@ static double point_to_line_distance(const cv::Point &p, const cv::Vec4f &line)
 	std::array<double, 3> l = cross(pa, pb);
 	return std::abs((p.x * l[0] + p.y * l[1] + l[2])) * 1.0 /
 		std::sqrt(double(l[0] * l[0] + l[1] * l[1]));
+}
+
+static void print_mat_type(cv::Mat& mat) {
+    int type = mat.type();
+    
+    std::string r;
+
+    uchar depth = type & CV_MAT_DEPTH_MASK;
+    uchar chans = 1 + (type >> CV_CN_SHIFT);
+
+    switch ( depth ) {
+        case CV_8U:  r = "8U"; break;
+        case CV_8S:  r = "8S"; break;
+        case CV_16U: r = "16U"; break;
+        case CV_16S: r = "16S"; break;
+        case CV_32S: r = "32S"; break;
+        case CV_32F: r = "32F"; break;
+        case CV_64F: r = "64F"; break;
+        default:     r = "User"; break;
+    }
+
+    r += "C";
+    r += (chans+'0');
+
+    ROS_INFO("type: %s, empty: %d", r.c_str(), mat.empty());
 }
 
 #endif

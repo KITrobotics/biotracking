@@ -6,7 +6,7 @@ depth_image_topic: /camera_body/depth_registered/image_raw
 #rgb_image_topic: /camera/rgb/image_raw
 rgb_image_topic: /camera_body/rgb/image_raw
 depth_image_pub: /biotracking/raw_image
-num_images_for_background: 2
+num_images_for_background: 3
 person_distance: 1.5
 bottom_factor: 1.
 shouldOutput: false
@@ -25,4 +25,7 @@ camera_info_topic: /camera_body/depth_registered/camera_info
 #camera_angle_radians: 0.26
 camera_angle_radians: 0.02
 shoulder_window_size: 10
-avg_image_path: background_image/avg_image.png
+avg_image_path: background_image/avg_image.yml
+min_distance_near_camera: 0.75
+out: 1
+rows_rollator_offset: 140

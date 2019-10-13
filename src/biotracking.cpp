@@ -6,11 +6,11 @@
 
 
 const int C = 640, R = 480; // x = c, y = r
-int out = 1;
+// int out = 1;
 // const int ToCalcAvg = 10;
-const int bad_point = 9.9;
+const float bad_point = 9.9;
 const int white = 255;
-
+std::string cv_fs_image_id = "avg_image";
 
 
 Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it_(nh)
@@ -26,8 +26,12 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
     nh_.param("camera_info_topic", camera_info_topic, std::string("camera_info"));
     nh_.param("num_images_for_background", num_images_for_background, 3);
     nh_.param("person_distance", person_distance, 1.);
+    nh_.param("min_distance_near_camera", min_distance_near_camera, 0.6);
     
     nh_.param("shoulder_window_size", shoulder_window_size, 10);
+    nh_.param("rows_rollator_offset", rows_rollator_offset, 140);
+    
+    nh_.param("out", out, 0);
     
     nh_.param("shouldOutput", shouldOutput, false);
     nh_.param("usePCL", usePCL, true);
@@ -45,8 +49,8 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
     nh_.param("camera_angle_radians", camera_angle_radians, 0.26);
     
     std::string avg_image_path_param;
-    nh_.param("avg_image_path", avg_image_path_param, std::string("background_image/avg_image.png"));
-    std::string biotracking_path = ros::package::getPath("biotracking");
+    nh_.param("avg_image_path", avg_image_path_param, std::string("background_image/avg_image.yml"));
+    biotracking_path = ros::package::getPath("biotracking");
     avg_image_path = biotracking_path + "/" + avg_image_path_param;
     
     hips_plane_pub_ = nh_.advertise<visualization_msgs::Marker>("/biotracking/hips_plane_pub_", 10);
@@ -315,7 +319,10 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     }
     
     if (!has_avg_image) {
-        cv::Mat read_image = cv::imread(avg_image_path, CV_32FC1);
+        cv::Mat read_image;
+        cv::FileStorage fs(avg_image_path, cv::FileStorage::READ);
+        fs[cv_fs_image_id] >> read_image;
+        
         if (!read_image.empty()) {
             for(int r = 0; r < read_image.rows; r++) {
                 float* avg_image_raw_ptr = avg_image.ptr<float>(r);
@@ -325,21 +332,47 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
                     avg_image_raw_ptr[c] = read_image_ptr[c];
                 }
             }
+            
             has_avg_image = true;
+            ROS_INFO("Average image is read from '%s'!", avg_image_path.c_str());
+            
         } else {
+            
+            if (remainedImagesToCalcAvg == num_images_for_background) {
+                ROS_INFO("Call service 'calculateAvg' to calculate average image.");
+            }
+            
             if (!isCalculateAvgSrvCalled) { return; }
+            
+            if (remainedImagesToCalcAvg == num_images_for_background) {
+                ROS_INFO("Average image was not found in '%s', calculating with %d images!", avg_image_path.c_str(), num_images_for_background);
+            }
             
             if (remainedImagesToCalcAvg > 0) 
             { 
-                avg_image += (1 / num_images_for_background) * cv_ptr->image;
+                for(int r = 0; r < avg_image.rows; r++) {
+                    float* avg_image_raw_ptr = avg_image.ptr<float>(r);
+                    float* cv_ptr_image_ptr = cv_ptr->image.ptr<float>(r);
+                    
+                    for(int c = 0; c < avg_image.cols; c++) {
+                      
+                        if (cv_ptr_image_ptr[c] == cv_ptr_image_ptr[c]) { // if not NaN
+                            if (avg_image_raw_ptr[c] > 0. || remainedImagesToCalcAvg == num_images_for_background) {
+                                avg_image_raw_ptr[c] += (1. / (float) num_images_for_background) * cv_ptr_image_ptr[c];
+                            } else {
+                                avg_image_raw_ptr[c] = ((num_images_for_background - remainedImagesToCalcAvg + 1) / num_images_for_background) * cv_ptr_image_ptr[c];
+                            }
+                        } else if (avg_image_raw_ptr[c] > 0.) {
+                            avg_image_raw_ptr[c] += (1 / (num_images_for_background - remainedImagesToCalcAvg)) * avg_image_raw_ptr[c];
+                        }
+                    }
+                }
                 remainedImagesToCalcAvg--;
                 return;
             }
             
             if (remainedImagesToCalcAvg == 0)
             { 
-                // 		std::string file = "/home/student1/avg_image.jpg";
-                //         cv::imwrite(path, avg_image);
                 remainedImagesToCalcAvg--;
                 
                 for(int r = 0; r < avg_image.rows; r++) {
@@ -348,16 +381,18 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
                     
                     for(int c = 0; c < avg_image.cols; c++) {
                         // if NaN
-                        if (avg_image_raw_ptr[c] != avg_image_raw_ptr[c]) { 
+                        if (avg_image_raw_ptr[c] != avg_image_raw_ptr[c] || avg_image_raw_ptr[c] > bad_point) { 
                             avg_image_raw_ptr[c] = bad_point;
                         }
-                        if (cv_ptr_image_ptr[c] != cv_ptr_image_ptr[c]) {
+                        if (cv_ptr_image_ptr[c] != cv_ptr_image_ptr[c] || cv_ptr_image_ptr[c] > bad_point) {
                             cv_ptr_image_ptr[c] = bad_point;
                         }
                     }
                 }
-                
-                cv::imwrite(avg_image_path, avg_image);
+                cv::FileStorage fs(avg_image_path, cv::FileStorage::WRITE);
+                fs << cv_fs_image_id << avg_image;
+
+
                 has_avg_image = true;
                 ROS_INFO("Average image is calculated!");
             }
@@ -369,58 +404,45 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     setUpVariables();
     
     cv::Mat avg_image_8u;
-    //     avg_image.convertTo(avg_image_8u, CV_8UC1, 255, 0);
     avg_image.convertTo(avg_image_8u, CV_8UC1);
     
     cv::Mat raw_image_8u;
     cv_ptr->image.convertTo(raw_image_8u, CV_8UC1, 255, 0);
     
-    /*
-     * workingImg
-     */
-    // 	cv::Mat workingImg = cv_ptr->image - avg_image;
     cv::Mat diffMat;
-    cv::absdiff(avg_image,cv_ptr->image,diffMat);
+    diffMat.create(R,C,CV_32FC1);
+    for(int r = 0; r < avg_image.rows; r++) {
+        float* avg_image_raw_ptr = avg_image.ptr<float>(r);
+        float* cv_ptr_image_ptr = cv_ptr->image.ptr<float>(r);
+        float* diffMat_ptr = diffMat.ptr<float>(r);
+        
+        for(int c = 0; c < avg_image.cols; c++) {
+            // if NaN
+            if (avg_image_raw_ptr[c] == bad_point || cv_ptr_image_ptr[c] == bad_point) {
+                diffMat_ptr[c] = 0.;
+            } else {
+                diffMat_ptr[c] = std::abs(avg_image_raw_ptr[c] - cv_ptr_image_ptr[c]);
+            }
+        }
+    }
     
     cv::Mat workingImg;
-    workingImg.create(R,C,CV_8UC1);
+    workingImg = cv::Mat::zeros(R,C,CV_8UC1);
     std::string s = "", s2 = "";
-    for(int r = 0; r < workingImg.rows; r++) {
-        //         uchar* raw_image_ptr = raw_image_8u.ptr<uchar>(r);
-        uchar* avg_image_ptr = avg_image_8u.ptr<uchar>(r);
+    for(int r = 0; r < workingImg.rows - rows_rollator_offset; r++) {
         uchar* workingImg_ptr = workingImg.ptr<uchar>(r);
+        uchar* avg_image_ptr = avg_image_8u.ptr<uchar>(r);
         float* cv_ptr_image_ptr = cv_ptr->image.ptr<float>(r);
         float* avg_image_raw_ptr = avg_image.ptr<float>(r);
         float* diffMat_ptr = diffMat.ptr<float>(r);
         
         for(int c = 0; c < workingImg.cols; c++) {
             
-            if (diffMat_ptr[c] > 0.1 && cv_ptr_image_ptr[c] < person_distance && cv_ptr_image_ptr[c] > 0.06)
+            if (diffMat_ptr[c] > 0.1 && cv_ptr_image_ptr[c] < person_distance && cv_ptr_image_ptr[c] > min_distance_near_camera 
+                && avg_image_raw_ptr[c] > min_distance_near_camera && avg_image_raw_ptr[c] > cv_ptr_image_ptr[c])
             {
                 workingImg_ptr[c] = 255;
-            } else {
-                workingImg_ptr[c] = 0;
             }
-            
-            if (out == 1) {
-                s += "[actual: " + std::to_string(cv_ptr_image_ptr[c]) + ", absdiff: " + std::to_string(diffMat_ptr[c]) + ", avg: " + std::to_string(avg_image_raw_ptr[c]) + ", pos: (" + std::to_string(r) + ", " + std::to_string(c) + ")]";
-                //                 s2 += "[" + std::to_string(raw_image_ptr[c]) + ", " + std::to_string(avg_image_ptr[c]) + "(" + std::to_string(r) + ", " + std::to_string(c) + ")]";
-                
-            }
-        }
-        
-        if (out == 1) {
-            s += "\n";
-            
-        }
-    }
-    if (out == 1) {
-        std::ofstream ofstream("/home/student1/output.txt");
-        ofstream << s;
-        ofstream.close();
-        out = 0;
-        if (shouldOutput) {
-            out = 1;
         }
     }
     
@@ -433,6 +455,10 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     
     erode(workingImg, erosion_dst, element);
     cv::Mat subtract_dst = workingImg - erosion_dst;
+    
+    for (int c = 0; c < subtract_dst.cols; c++) {
+        subtract_dst.ptr<uchar>(workingImg.rows - rows_rollator_offset - 1)[c] = 0;
+    }
     
     int bottom_r = subtract_dst.rows - 10;
     bottom_right_r = bottom_left_r = bottom_r; 
