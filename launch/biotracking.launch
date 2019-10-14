@@ -1,7 +1,8 @@
+<?xml version="1.0"?>
 <launch>
   <node pkg="biotracking" type="biotracking" name="biotracking" output="screen">
     <rosparam command="load" file="$(find biotracking)/config/parameters.yaml"/>
     <rosparam command="load" file="$(find biotracking)/config/kalman_filter.yaml"/>
   </node>
-
+  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find biotracking)/config/setup.rviz"/>
 </launch>
