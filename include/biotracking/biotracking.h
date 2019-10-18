@@ -89,6 +89,8 @@ private:
   int R;
   int C;
   int rows_rollator_offset;
+  int erosion_size;
+  int dilation_size;
 
   float center_x;
   float center_y;
@@ -108,8 +110,10 @@ private:
   std::string camera_info_topic;
   std::string from_pc2_depth_image_topic;
   std::string depth_image_sub_topic;
+  std::string rgb_image_sub_topic;
 
   cv::Mat avg_image;
+  cv::Point2f moments_center;
 
   KalmanFilter* kalman_left_shoulder;
   KalmanFilter* kalman_right_shoulder;
@@ -133,8 +137,9 @@ private:
   image_transport::Publisher mog2_pub_;
   image_transport::Publisher erosion_image_pub_;
   image_transport::Publisher from_pc2_depth_image_pub_;
+  image_transport::Publisher dilation_image_pub_;
 
-  void imageCb(const sensor_msgs::ImageConstPtr& msg);
+  void depthImageCb(const sensor_msgs::ImageConstPtr& msg);
   void rgbImageCb(const sensor_msgs::ImageConstPtr& msg);
   void cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg);
   bool calculateAvgImageCb(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response);

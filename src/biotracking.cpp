@@ -11,6 +11,7 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
     nh_.param("from_pc2_depth_image_topic", from_pc2_depth_image_topic, std::string("/biotracking/from_pc2_depth_image"));
     nh_.param("cv_fs_image_id", cv_fs_image_id, std::string("avg_image"));
     nh_.param("depth_image_sub_topic", depth_image_sub_topic, std::string("/biotracking/from_pc2_depth_image"));
+    nh_.param("rgb_image_sub_topic", rgb_image_sub_topic, std::string("/camera_body/rgb/image_raw"));
     nh_.param("image_cols", C, 640);
     nh_.param("image_rows", R, 480);
     nh_.param("num_images_for_background", num_images_for_background, 3);
@@ -18,14 +19,17 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
     nh_.param("min_distance_near_camera", min_distance_near_camera, 0.4);
     nh_.param("bad_point", bad_point, 9.9);
     nh_.param("rows_rollator_offset", rows_rollator_offset, 140);
+    nh_.param("erosion_size", erosion_size, 2);
+    nh_.param("dilation_size", dilation_size, 2);
 
     std::string avg_image_path_param;
     nh_.param("avg_image_path", avg_image_path_param, std::string("background_image/avg_image.yml"));
     biotracking_path = ros::package::getPath("biotracking");
     avg_image_path = biotracking_path + "/" + avg_image_path_param;
 
-    depth_image_sub_ = it_.subscribe(depth_image_sub_topic, 1, &Biotracking::imageCb, this);
+    depth_image_sub_ = it_.subscribe(depth_image_sub_topic, 1, &Biotracking::depthImageCb, this);
     sub_camera_info_ = nh_.subscribe<sensor_msgs::CameraInfo>(camera_info_topic, 1, &Biotracking::cameraInfoCb, this);
+    rgb_image_sub_ = it_.subscribe(rgb_image_sub_topic, 1, &Biotracking::rgbImageCb, this);
 
     calculateAvgService_ = nh_.advertiseService("calculateAvg", &Biotracking::calculateAvgImageCb, this);
     subtract_image_pub_ = it_.advertise("/biotracking/subtract_image", 1);
@@ -34,6 +38,8 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
     erosion_image_pub_ = it_.advertise("/biotracking/erosion_image", 1);
     from_pc2_depth_image_pub_ = it_.advertise(from_pc2_depth_image_topic, 1);
     biofeedback_pub_ = nh_.advertise<biotracking::BioFeedbackMsg>("/biotracking/biofeedback", 10);
+    rgb_image_pub_ = it_.advertise("/biotracking/rgb_image", 1);
+    dilation_image_pub_ = it_.advertise("/biotracking/dilation_image", 1);
 
     remainedImagesToCalcAvg = num_images_for_background;
     avg_image.create(R,C,CV_32FC1);
@@ -70,6 +76,22 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
 //     }
 // }
 
+void Biotracking::rgbImageCb(const sensor_msgs::ImageConstPtr& msg)
+{
+    cv_bridge::CvImagePtr cv_ptr;
+    try
+    {
+        cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+    }
+    catch (cv_bridge::Exception& e)
+    {
+        ROS_ERROR("cv_bridge exception: %s", e.what());
+        return;
+    }
+    cv::circle(cv_ptr->image, moments_center, 15, CV_RGB(255,0,0), -1);
+    rgb_image_pub_.publish(cv_ptr->toImageMsg());
+}
+
 void Biotracking::cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg)
 {
     if (!hasCameraInfo)
@@ -86,7 +108,7 @@ void Biotracking::cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg)
     }
 }
 
-void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
+void Biotracking::depthImageCb(const sensor_msgs::ImageConstPtr& msg)
 {
     cv_bridge::CvImagePtr cv_ptr;
     try
@@ -218,12 +240,19 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     }
 
     cv::Mat erosion_dst;
-    int erosion_size = 1;
     cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT,
                                                 cv::Size(2 * erosion_size + 1, 2 * erosion_size + 1),
-                                                cv::Point(erosion_size, erosion_size) );
-
+                                                cv::Point(erosion_size, erosion_size));
     erode(workingImg, erosion_dst, element);
+    cv::Moments moments = cv::moments(erosion_dst);
+    moments_center = cv::Point2f(static_cast<float>(moments.m10 / (moments.m00 + 1e-5)),
+                                 static_cast<float>(moments.m01 / (moments.m00 + 1e-5)));
+    cv::Mat dilation_dst;
+    element = cv::getStructuringElement(cv::MORPH_RECT,
+                                                cv::Size(2 * dilation_size + 1, 2 * dilation_size + 1),
+                                                cv::Point(dilation_size, dilation_size));
+    dilate(erosion_dst, dilation_dst, element);
+
     cv::Mat subtract_dst = workingImg - erosion_dst;
 
     sensor_msgs::ImagePtr msg_to_pub;
@@ -236,6 +265,8 @@ void Biotracking::imageCb(const sensor_msgs::ImageConstPtr& msg)
     subtract_image_pub_.publish(msg_to_pub);
     msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", erosion_dst).toImageMsg();
     erosion_image_pub_.publish(msg_to_pub);
+    msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", dilation_dst).toImageMsg();
+    dilation_image_pub_.publish(msg_to_pub);
 }
 
 bool Biotracking::calculateAvgImageCb(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response)

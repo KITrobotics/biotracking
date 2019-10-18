@@ -10,3 +10,6 @@ rows_rollator_offset: 120
 depth_image_sub_topic: /camera_body/depth_registered/image_raw
 rgb_image_topic: /camera_body/rgb/image_raw
 avg_image_path: background_image/avg_image.yml
+rgb_image_sub_topic: /camera_body/rgb/image_raw
+erosion_size: 2
+dilation_size: 6
