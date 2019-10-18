@@ -78,29 +78,29 @@ private:
   tf2_ros::Buffer tfBuffer;
   tf2_ros::TransformListener tfListener;
   ros::NodeHandle nh_;
-  
+
   bool isAvgCalculated;
   bool isCalculateAvgSrvCalled;
   bool has_avg_image;
   bool hasCameraInfo;
-  
+
   int remainedImagesToCalcAvg;
   int num_images_for_background;
   int R;
   int C;
   int rows_rollator_offset;
-  
+
   float center_x;
   float center_y;
   float constant_x;
   float constant_y;
-  
+
   double bad_point;
   double person_distance;
   double bottom_factor;
   double camera_angle_radians;
   double min_distance_near_camera;
-  
+
   std::string cv_fs_image_id;
   std::string topic_point_cloud;
   std::string avg_image_path;
@@ -108,19 +108,19 @@ private:
   std::string camera_info_topic;
   std::string from_pc2_depth_image_topic;
   std::string depth_image_sub_topic;
-  
+
   cv::Mat avg_image;
-  
+
   KalmanFilter* kalman_left_shoulder;
   KalmanFilter* kalman_right_shoulder;
-  
+
   image_geometry::PinholeCameraModel model_;
-  
+
   ros::ServiceServer calculateAvgService_;
-  
+
   ros::Subscriber pc2_subscriber_;
   ros::Subscriber sub_camera_info_;
-  
+
   ros::Publisher biofeedback_pub_;
 
   image_transport::ImageTransport it_;
@@ -133,7 +133,7 @@ private:
   image_transport::Publisher mog2_pub_;
   image_transport::Publisher erosion_image_pub_;
   image_transport::Publisher from_pc2_depth_image_pub_;
-  
+
   void imageCb(const sensor_msgs::ImageConstPtr& msg);
   void rgbImageCb(const sensor_msgs::ImageConstPtr& msg);
   void cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg);
@@ -142,7 +142,7 @@ private:
 public:
   Biotracking(ros::NodeHandle nh);
   ~Biotracking() {}
-  
+
 };
 
 #endif
