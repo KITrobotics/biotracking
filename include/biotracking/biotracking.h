@@ -143,6 +143,9 @@ private:
   void rgbImageCb(const sensor_msgs::ImageConstPtr& msg);
   void cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg);
   bool calculateAvgImageCb(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response);
+  void calculateAndDrawLines(cv::Mat& black_white_image);
+  void fitAndDrawLine(cv::Mat& black_white_image, std::vector<cv::Point>& points);
+  void calculateShoulderPoints(cv::Mat& black_white_image, bool isRightShoulder);
 
 public:
   Biotracking(ros::NodeHandle nh);
