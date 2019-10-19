@@ -8,7 +8,6 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
 {
     nh_.param("topic_point_cloud", topic_point_cloud, std::string("/camera/depth_registered/points"));
     nh_.param("camera_info_topic", camera_info_topic, std::string("camera_info"));
-    nh_.param("from_pc2_depth_image_topic", from_pc2_depth_image_topic, std::string("/biotracking/from_pc2_depth_image"));
     nh_.param("cv_fs_image_id", cv_fs_image_id, std::string("avg_image"));
     nh_.param("depth_image_sub_topic", depth_image_sub_topic, std::string("/biotracking/from_pc2_depth_image"));
     nh_.param("rgb_image_sub_topic", rgb_image_sub_topic, std::string("/camera_body/rgb/image_raw"));
@@ -32,14 +31,13 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
     rgb_image_sub_ = it_.subscribe(rgb_image_sub_topic, 1, &Biotracking::rgbImageCb, this);
 
     calculateAvgService_ = nh_.advertiseService("calculateAvg", &Biotracking::calculateAvgImageCb, this);
-    subtract_image_pub_ = it_.advertise("/biotracking/subtract_image", 1);
-    working_image_pub_ = it_.advertise("/biotracking/working_image", 1);
+    //     subtract_image_pub_ = it_.advertise("/biotracking/subtract_image", 1);
+    //     working_image_pub_ = it_.advertise("/biotracking/working_image", 1);
     avg_image_pub_ = it_.advertise("/biotracking/avg_image", 1);
-    erosion_image_pub_ = it_.advertise("/biotracking/erosion_image", 1);
-    from_pc2_depth_image_pub_ = it_.advertise(from_pc2_depth_image_topic, 1);
+    //     erosion_image_pub_ = it_.advertise("/biotracking/erosion_image", 1);
     biofeedback_pub_ = nh_.advertise<biotracking::BioFeedbackMsg>("/biotracking/biofeedback", 10);
     rgb_image_pub_ = it_.advertise("/biotracking/rgb_image", 1);
-    dilation_image_pub_ = it_.advertise("/biotracking/dilation_image", 1);
+    //     dilation_image_pub_ = it_.advertise("/biotracking/dilation_image", 1);
 
     remainedImagesToCalcAvg = num_images_for_background;
     avg_image.create(R,C,CV_32FC1);
@@ -49,32 +47,14 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
     kalman_right_shoulder = new KalmanFilter();
 }
 
-// void Biotracking::publishBiofeedbackMsg()
-// {
-//   biotracking::BioFeedbackMsg biofeedback_msg;
-//   biofeedback_msg.header =
-//   biofeedback_msg.hips_left_pt =
-//   biofeedback_msg.hips_right_pt =
-//   biofeedback_msg.shoulder_left_pt =
-//   biofeedback_msg.shoulder_right_pt =
-//   biofeedback_pub.publish(biofeedback_msg);
-// }
-// void Biotracking::updateKalman(float x, float y, int& shoulder_x, int& shoulder_y)
-// {
-//     if (x == -1 && y == -1) { return; }
-//
-//     std::vector<double> in, out;
-//     in.push_back(x); in.push_back(y);
-//
-//     if (kalman_left_shoulder->isInitializated()) {
-//         kalman_left_shoulder->update(in, out);
-//         shoulder_x = out[0];
-//         shoulder_y = out[1];
-//     } else {
-//         for (int i = 0; i < 4; i++) { in.push_back(0.0); }
-//         kalman_left_shoulder->configure(in);
-//     }
-// }
+void Biotracking::publishBiofeedbackMsg(const sensor_msgs::ImageConstPtr& msg)
+{
+    biotracking::BioFeedbackMsg biofeedback_msg;
+    biofeedback_msg.header = msg->header;
+    biofeedback_msg.sinister_schoulder_pt = sinister_schoulder_3d_pt;
+    biofeedback_msg.dexter_schoulder_pt = dexter_schoulder_3d_pt;
+    biofeedback_pub_.publish(biofeedback_msg);
+}
 
 void Biotracking::rgbImageCb(const sensor_msgs::ImageConstPtr& msg)
 {
@@ -89,7 +69,10 @@ void Biotracking::rgbImageCb(const sensor_msgs::ImageConstPtr& msg)
         return;
     }
     cv::circle(cv_ptr->image, moments_center, 15, CV_RGB(255,0,0), -1);
+    cv::circle(cv_ptr->image, sinister_schoulder_cv_pt, 15, CV_RGB(255,0,0), -1);
+    cv::circle(cv_ptr->image, dexter_schoulder_cv_pt, 15, CV_RGB(255,0,0), -1);
     rgb_image_pub_.publish(cv_ptr->toImageMsg());
+    publishBiofeedbackMsg(msg);
 }
 
 void Biotracking::cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg)
@@ -249,34 +232,85 @@ void Biotracking::depthImageCb(const sensor_msgs::ImageConstPtr& msg)
                                  static_cast<float>(moments.m01 / (moments.m00 + 1e-5)));
     cv::Mat dilation_dst;
     element = cv::getStructuringElement(cv::MORPH_RECT,
-                                                cv::Size(2 * dilation_size + 1, 2 * dilation_size + 1),
-                                                cv::Point(dilation_size, dilation_size));
+                                        cv::Size(2 * dilation_size + 1, 2 * dilation_size + 1),
+                                        cv::Point(dilation_size, dilation_size));
     dilate(erosion_dst, dilation_dst, element);
+    calculateSinisterLine(dilation_dst);
+    calculateDexterLine(dilation_dst);
+    findCorrespondingSinisterDepthPoint(cv_ptr->image, workingImg);
+    findCorrespondingDexterDepthPoint(cv_ptr->image, workingImg);
 
-    cv::Mat todo_change_back = dilation_dst;
-    calculateAndDrawLines(todo_change_back);
-
-//     calculateShoulderPoints(dilation_dst, false);
-
-    cv::Mat subtract_dst = todo_change_back;
-//     cv::Mat subtract_dst = workingImg - erosion_dst;
+    cv::Mat subtract_dst = workingImg - erosion_dst;
 
     sensor_msgs::ImagePtr msg_to_pub;
 
     msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "32FC1", avg_image).toImageMsg();
     avg_image_pub_.publish(msg_to_pub);
-    msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", workingImg).toImageMsg();
-    working_image_pub_.publish(msg_to_pub);
-    msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", subtract_dst).toImageMsg();
-    subtract_image_pub_.publish(msg_to_pub);
-    msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", erosion_dst).toImageMsg();
-    erosion_image_pub_.publish(msg_to_pub);
-    msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", dilation_dst).toImageMsg();
-    dilation_image_pub_.publish(msg_to_pub);
+    //     msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", workingImg).toImageMsg();
+    //     working_image_pub_.publish(msg_to_pub);
+    //     msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", subtract_dst).toImageMsg();
+    //     subtract_image_pub_.publish(msg_to_pub);
+    //     msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", erosion_dst).toImageMsg();
+    //     erosion_image_pub_.publish(msg_to_pub);
+    //     msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", dilation_dst).toImageMsg();
+    //     dilation_image_pub_.publish(msg_to_pub);
+}
+
+void Biotracking::findCorrespondingDexterDepthPoint(cv::Mat& depth_image, cv::Mat& black_white_image)
+{
+    float min_distance = bad_point;
+    cv::Point min_distance_pt = cv::Point(0, 0);
+    for(int r = dexter_schoulder_cv_pt.y; r < dexter_schoulder_cv_pt.y + 2 * dilation_size + 1; r++) {
+        for(int c = dexter_schoulder_cv_pt.x; c < dexter_schoulder_cv_pt.x + 2 * dilation_size + 1; c++) {
+            uchar black_white = black_white_image.ptr<uchar>(r)[c];
+            if (black_white > 0) {
+                float current_distance = distance(dexter_schoulder_cv_pt.x, dexter_schoulder_cv_pt.y, c, r);
+                if (current_distance < min_distance) {
+                    min_distance = current_distance;
+                    min_distance_pt.x = c;
+                    min_distance_pt.y = r;
+                }
+            }
+        }
+    }
+    if (min_distance != bad_point) {
+        dexter_schoulder_cv_pt.x = min_distance_pt.x;
+        dexter_schoulder_cv_pt.y = min_distance_pt.y;
+        dexter_schoulder_3d_pt.z = depth_image.ptr<float>(min_distance_pt.y)[min_distance_pt.x];
+        dexter_schoulder_3d_pt.y = (min_distance_pt.y - center_y) * dexter_schoulder_3d_pt.z * constant_y;
+        dexter_schoulder_3d_pt.x = (min_distance_pt.x - center_x) * dexter_schoulder_3d_pt.z * constant_x;
+    }
+}
+
+void Biotracking::findCorrespondingSinisterDepthPoint(cv::Mat& depth_image, cv::Mat& black_white_image)
+{
+    float min_distance = bad_point;
+    cv::Point min_distance_pt = cv::Point(0, 0);
+    for(int r = sinister_schoulder_cv_pt.y; r < sinister_schoulder_cv_pt.y + 2 * dilation_size + 1; r++) {
+        for(int c = sinister_schoulder_cv_pt.x; c > sinister_schoulder_cv_pt.x - 2 * dilation_size - 1; c--) {
+            uchar black_white = black_white_image.ptr<uchar>(r)[c];
+            if (black_white > 0) {
+                float current_distance = distance(sinister_schoulder_cv_pt.x, sinister_schoulder_cv_pt.y, c, r);
+                if (current_distance < min_distance) {
+                    min_distance = current_distance;
+                    min_distance_pt.x = c;
+                    min_distance_pt.y = r;
+                }
+            }
+        }
+    }
+    if (min_distance != bad_point) {
+        sinister_schoulder_cv_pt.x = min_distance_pt.x;
+        sinister_schoulder_cv_pt.y = min_distance_pt.y;
+        sinister_schoulder_3d_pt.z = depth_image.ptr<float>(min_distance_pt.y)[min_distance_pt.x];
+        sinister_schoulder_3d_pt.y = (min_distance_pt.y - center_y) * sinister_schoulder_3d_pt.z * constant_y;
+        sinister_schoulder_3d_pt.x = (min_distance_pt.x - center_x) * sinister_schoulder_3d_pt.z * constant_x;
+    }
 }
 
 void Biotracking::fitAndDrawLine(cv::Mat& black_white_image, std::vector<cv::Point>& points)
 {
+    if (points.size() < 2) { return; }
     cv::Vec4f line;
     cv::fitLine(points, line, cv::DIST_L1, 1, 0.001, 0.001);
     float d = std::sqrt((double) line[0] * line[0] + (double) line[1] * line[1]);
@@ -291,88 +325,10 @@ void Biotracking::fitAndDrawLine(cv::Mat& black_white_image, std::vector<cv::Poi
     cv::line(black_white_image, pt1, pt2, cv::Scalar(255, 255, 255), 3, CV_AA, 0);
 }
 
-void Biotracking::calculateShoulderPoints(cv::Mat& black_white_image, bool isRightShoulder)
+void Biotracking::calculateDexterLine(cv::Mat& black_white_image)
 {
-    cv::Mat result = cv::Mat(black_white_image.rows, black_white_image.cols, CV_8UC1, cv::Scalar(0));
-//     if (result.empty()) {
-//         result = cv::Mat(black_white_image.rows, black_white_image.cols, CV_8UC1, cv::Scalar(0));
-//     }
-//     shoulder_y = -1;
-    std::vector<cv::Point> nzPoints;
-
-    int prev_c = -1;
-    int prev_r = -1;
-    bool found_arm = false;
-    int shoulder_window_size = 10;
-    int remaining_points = shoulder_window_size;
-
-
-    for(int r = black_white_image.rows - rows_rollator_offset + 2; r > 0; r--) {
-//         if (found_arm && remaining_points == 0) { break; }
-//         if (found_arm && remaining_points > 0) { remaining_points--; }
-        if (found_arm) { break; }
-        int nearest_c = black_white_image.rows;
-        int c_diff = shoulder_window_size + 1;
-        int lower_bound = std::max(0, prev_c - shoulder_window_size);
-        int upper_bound = std::min(prev_c + shoulder_window_size, black_white_image.cols - 1);
-        if (prev_c == -1) {
-            for (int c = moments_center.x; c > 0; c--) {
-                uchar black_white_left = black_white_image.ptr<uchar>(r)[c];
-                if (black_white_left == 0) {
-                    lower_bound = c;
-                    break;
-                }
-            }
-            if (lower_bound == std::max(0, prev_c - shoulder_window_size)) { continue; }
-            upper_bound = black_white_image.cols - 1;
-        }
-        for(int col = lower_bound; col < upper_bound; col++) {
-            int c = col;
-            if (isRightShoulder) {
-                c = std::min(lower_bound + (upper_bound - col), black_white_image.cols - 1);
-            }
-            uchar black_white = black_white_image.ptr<uchar>(r)[c];
-            if (black_white > 0)
-            {
-                if (prev_c != -1) {
-                    if (std::abs(c - prev_c) < c_diff) {
-                        c_diff = std::abs(c - prev_c);
-                        nearest_c = c;
-                    }
-                } else {
-                    nearest_c = c;
-                    break;
-                }
-            }
-        }
-        if (nearest_c != black_white_image.rows) {
-            nzPoints.push_back(cv::Point(nearest_c,r));
-            result.ptr<uchar>(r)[nearest_c] = 255;
-            prev_c = nearest_c;
-            if (prev_r != -1 && std::abs(prev_r - r) > 18 && !found_arm) {
-                found_arm = true;
-            }
-            prev_r = r;
-        }
-        if (nearest_c == black_white_image.rows) {
-            break;
-        }
-    }
-
-//     shoulder_x = prev_c;
-//     shoulder_y = prev_r;
-    //     updateKalman(prev_c, prev_r, shoulder_x, shoulder_y);
-    if (nzPoints.size() >= 2) {
-        fitAndDrawLine(black_white_image, nzPoints);
-    }
-    black_white_image = result;
-}
-
-void Biotracking::calculateAndDrawLines(cv::Mat& black_white_image)
-{
-    cv::Mat result = cv::Mat(black_white_image.rows, black_white_image.cols, CV_8UC1, cv::Scalar(0));
-    std::vector<cv::Point> left_points, right_points;
-    int prev_c = -1;
+    std::vector<cv::Point> points;
+    int prev_col = -1;
     int printed = false;
     int moments_center_x = static_cast<int>(moments_center.x);
     int max_allowed_distance = 10;
@@ -380,56 +336,107 @@ void Biotracking::calculateAndDrawLines(cv::Mat& black_white_image)
         uchar black_white = black_white_image.ptr<uchar>(r)[moments_center_x];
         if (black_white == 0) { continue; }
 
-
         bool found_something = false;
-        result.ptr<uchar>(r)[moments_center_x] = 180;
 
-        int lower_bound, upper_bound;
-        if (prev_c == -1) {
-            lower_bound = moments_center_x;
-            upper_bound = black_white_image.cols;
+        int begin_col, end_col;
+        if (prev_col == -1) {
+            begin_col = moments_center_x;
+            end_col = 0;
         } else {
-            lower_bound = std::max(0, prev_c - max_allowed_distance);
-            upper_bound = std::min(prev_c + max_allowed_distance, black_white_image.cols);
+            begin_col = std::min(prev_col + max_allowed_distance, black_white_image.cols - 1);
+            end_col = std::max(0, prev_col - max_allowed_distance);
         }
-        for(int c = lower_bound; c < upper_bound; c++) {
+        for(int c = begin_col; c > end_col; c--) {
             uchar black_white_right = black_white_image.ptr<uchar>(r)[c];
             if (black_white_right == 0) {
                 found_something = true;
-//                 if (!printed) {
-//                     ROS_INFO("erster black_white = 0: (r,c) = (%d, %d), moments_center_x: %d, bw: %d", r, c, moments_center_x, black_white_right);
-//                     printed = true;
-//                 }
-                right_points.push_back(cv::Point(c, r));
-                prev_c = c;
-                result.ptr<uchar>(r)[c] = 255;
+                points.push_back(cv::Point(c + 1, r));
+                prev_col = c + 1;
                 break;
             }
         }
-
-//         for (int c = moments_center.y; c > 0; c--) {
-//             if (c == 1) {
-//                 hasToBreak = true;
-//             }
-//             uchar black_white_left = black_white_image.ptr<uchar>(r)[c];
-//             if (black_white > 0) { continue; }
-//             left_points.push_back(cv::Point(c, r));
-//             break;
-//         }
 
         if (!found_something) {
             break;
         }
     }
-    cv::Mat andResult = cv::Mat(black_white_image.rows, black_white_image.cols, CV_8UC1, cv::Scalar(0));
-    fitAndDrawLine(andResult, right_points);
-    black_white_image = andResult & black_white_image;
-//     fitAndDrawLine(black_white_image, left_points);
-//     black_white_image = result;
+    cv::Mat dexter_line = cv::Mat(black_white_image.rows, black_white_image.cols, CV_8UC1, cv::Scalar(0));
+    fitAndDrawLine(dexter_line, points);
+    dexter_line = dexter_line & black_white_image;
+    findShoulderPoint(dexter_line, dexter_schoulder_cv_pt);
+}
+
+void Biotracking::calculateSinisterLine(cv::Mat& black_white_image)
+{
+    std::vector<cv::Point> points;
+    int prev_col = -1;
+    int printed = false;
+    int moments_center_x = static_cast<int>(moments_center.x);
+    int max_allowed_distance = 10;
+    for(int r = black_white_image.rows - rows_rollator_offset; r > 0; r--) {
+        uchar black_white = black_white_image.ptr<uchar>(r)[moments_center_x];
+        if (black_white == 0) { continue; }
+
+        bool found_something = false;
+
+        int begin_col, end_col;
+        if (prev_col == -1) {
+            begin_col = moments_center_x;
+            end_col = black_white_image.cols;
+        } else {
+            begin_col = std::max(0, prev_col - max_allowed_distance);
+            end_col = std::min(prev_col + max_allowed_distance, black_white_image.cols);
+        }
+        for(int c = begin_col; c < end_col; c++) {
+            uchar black_white_right = black_white_image.ptr<uchar>(r)[c];
+            if (black_white_right == 0) {
+                found_something = true;
+                points.push_back(cv::Point(c - 1, r));
+                prev_col = c - 1;
+                break;
+            }
+        }
+
+        if (!found_something) {
+            break;
+        }
+    }
+    cv::Mat sinister_line = cv::Mat(black_white_image.rows, black_white_image.cols, CV_8UC1, cv::Scalar(0));
+    fitAndDrawLine(sinister_line, points);
+    sinister_line = sinister_line & black_white_image;
+    findShoulderPoint(sinister_line, sinister_schoulder_cv_pt);
+}
+
+void Biotracking::findShoulderPoint(cv::Mat& black_white_image, cv::Point& shoulder_pt)
+{
+    int prev_r = -1;
+    int prev_col = -1;
+    for(int r = black_white_image.rows - rows_rollator_offset; r > 0; r--) {
+        for(int c = 0; c < black_white_image.cols; c++) {
+            uchar black_white = black_white_image.ptr<uchar>(r)[c];
+            if (black_white > 0) {
+                if (prev_r != -1 && std::abs(prev_r - r) > 10 && prev_r < moments_center.y) {
+                    shoulder_pt = cv::Point(prev_col, prev_r);
+                    return;
+                }
+                prev_r = r;
+                prev_col = c;
+                break;
+            }
+        }
+    }
+    if (prev_col != -1 && prev_r != -1) {
+        shoulder_pt = cv::Point(prev_col, prev_r);
+    }
 }
 
 bool Biotracking::calculateAvgImageCb(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response)
 {
     isCalculateAvgSrvCalled = true;
     return true;
+}
+
+float Biotracking::distance(int x1, int y1, int x2, int y2)
+{
+    return std::sqrt(std::pow(x2 - x1, 2) + std::pow(y2 - y1, 2) * 1.0);
 }

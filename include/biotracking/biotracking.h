@@ -114,6 +114,11 @@ private:
 
   cv::Mat avg_image;
   cv::Point2f moments_center;
+  cv::Point sinister_schoulder_cv_pt;
+  cv::Point dexter_schoulder_cv_pt;
+
+  geometry_msgs::Point sinister_schoulder_3d_pt;
+  geometry_msgs::Point dexter_schoulder_3d_pt;
 
   KalmanFilter* kalman_left_shoulder;
   KalmanFilter* kalman_right_shoulder;
@@ -134,18 +139,21 @@ private:
   image_transport::Publisher working_image_pub_;
   image_transport::Publisher avg_image_pub_;
   image_transport::Publisher rgb_image_pub_;
-  image_transport::Publisher mog2_pub_;
   image_transport::Publisher erosion_image_pub_;
-  image_transport::Publisher from_pc2_depth_image_pub_;
   image_transport::Publisher dilation_image_pub_;
 
   void depthImageCb(const sensor_msgs::ImageConstPtr& msg);
   void rgbImageCb(const sensor_msgs::ImageConstPtr& msg);
   void cameraInfoCb(const sensor_msgs::CameraInfoConstPtr& info_msg);
   bool calculateAvgImageCb(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response);
-  void calculateAndDrawLines(cv::Mat& black_white_image);
+  void calculateSinisterLine(cv::Mat& black_white_image);
+  void calculateDexterLine(cv::Mat& black_white_image);
   void fitAndDrawLine(cv::Mat& black_white_image, std::vector<cv::Point>& points);
-  void calculateShoulderPoints(cv::Mat& black_white_image, bool isRightShoulder);
+  void findShoulderPoint(cv::Mat& black_white_image, cv::Point& shoulder_pt);
+  void findCorrespondingSinisterDepthPoint(cv::Mat& depth_image, cv::Mat& black_white_image);
+  void findCorrespondingDexterDepthPoint(cv::Mat& depth_image, cv::Mat& black_white_image);
+  float distance(int x1, int y1, int x2, int y2);
+  void publishBiofeedbackMsg(const sensor_msgs::ImageConstPtr& msg);
 
 public:
   Biotracking(ros::NodeHandle nh);
