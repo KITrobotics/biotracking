@@ -1,5 +1,3 @@
 std_msgs/Header header
-geometry_msgs/Point shoulder_left_pt
-geometry_msgs/Point shoulder_right_pt
-geometry_msgs/Point hips_left_pt
-geometry_msgs/Point hips_right_pt
+geometry_msgs/Point sinister_schoulder_pt
+geometry_msgs/Point dexter_schoulder_pt
