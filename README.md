@@ -11,5 +11,9 @@ config/parameters.yaml
 ```
 Calling service for calculating average image:
 ```
-rosservice call /cv_leg_tracking/calculateAvg
+rosservice call /biotracking/calculateAvg
+```
+Shoulder positions are published as BioFeedbackMsg to:
+```
+/biotracking/biofeedback
 ```
