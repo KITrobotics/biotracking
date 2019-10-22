@@ -133,14 +133,13 @@ private:
   ros::Publisher biofeedback_pub_;
 
   image_transport::ImageTransport it_;
+
   image_transport::Subscriber depth_image_sub_;
   image_transport::Subscriber rgb_image_sub_;
-  image_transport::Publisher subtract_image_pub_;
-  image_transport::Publisher working_image_pub_;
+
   image_transport::Publisher avg_image_pub_;
   image_transport::Publisher rgb_image_pub_;
-  image_transport::Publisher erosion_image_pub_;
-  image_transport::Publisher dilation_image_pub_;
+  image_transport::Publisher diffMat_image_pub_;
 
   void depthImageCb(const sensor_msgs::ImageConstPtr& msg);
   void rgbImageCb(const sensor_msgs::ImageConstPtr& msg);

@@ -31,13 +31,10 @@ Biotracking::Biotracking(ros::NodeHandle nh) : nh_(nh), tfListener(tfBuffer), it
     rgb_image_sub_ = it_.subscribe(rgb_image_sub_topic, 1, &Biotracking::rgbImageCb, this);
 
     calculateAvgService_ = nh_.advertiseService("calculateAvg", &Biotracking::calculateAvgImageCb, this);
-    //     subtract_image_pub_ = it_.advertise("/biotracking/subtract_image", 1);
-    //     working_image_pub_ = it_.advertise("/biotracking/working_image", 1);
     avg_image_pub_ = it_.advertise("/biotracking/avg_image", 1);
-    //     erosion_image_pub_ = it_.advertise("/biotracking/erosion_image", 1);
     biofeedback_pub_ = nh_.advertise<biotracking::BioFeedbackMsg>("/biotracking/biofeedback", 10);
     rgb_image_pub_ = it_.advertise("/biotracking/rgb_image", 1);
-    //     dilation_image_pub_ = it_.advertise("/biotracking/dilation_image", 1);
+    diffMat_image_pub_ = it_.advertise("/biotracking/diffMat", 1);
 
     remainedImagesToCalcAvg = num_images_for_background;
     avg_image.create(R,C,CV_32FC1);
@@ -246,14 +243,8 @@ void Biotracking::depthImageCb(const sensor_msgs::ImageConstPtr& msg)
 
     msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "32FC1", avg_image).toImageMsg();
     avg_image_pub_.publish(msg_to_pub);
-    //     msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", workingImg).toImageMsg();
-    //     working_image_pub_.publish(msg_to_pub);
-    //     msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", subtract_dst).toImageMsg();
-    //     subtract_image_pub_.publish(msg_to_pub);
-    //     msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", erosion_dst).toImageMsg();
-    //     erosion_image_pub_.publish(msg_to_pub);
-    //     msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "8UC1", dilation_dst).toImageMsg();
-    //     dilation_image_pub_.publish(msg_to_pub);
+    msg_to_pub = cv_bridge::CvImage(std_msgs::Header(), "32FC1", diffMat).toImageMsg();
+    diffMat_image_pub_.publish(msg_to_pub);
 }
 
 void Biotracking::findCorrespondingDexterDepthPoint(cv::Mat& depth_image, cv::Mat& black_white_image)
